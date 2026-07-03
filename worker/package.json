@@ -1,0 +1,14 @@
+{
+  "name": "agastya-admin-worker",
+  "private": true,
+  "version": "1.0.0",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "secret:github-token": "wrangler secret put GITHUB_TOKEN"
+  },
+  "devDependencies": {
+    "wrangler": "^3.78.0"
+  }
+}

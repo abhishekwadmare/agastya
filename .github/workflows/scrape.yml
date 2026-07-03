@@ -1,0 +1,43 @@
+name: Scrape jobs
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"  # every 4 hours
+  workflow_dispatch: {}     # lets you trigger it manually from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Run scraper
+        id: scrape
+        run: python scraper/scrape.py
+
+      - name: Send Telegram notifications for new jobs
+        env:
+          NEW_JOBS_COUNT: ${{ steps.scrape.outputs.new_jobs_count }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scraper/notify.py
+
+      - name: Commit updated job data
+        run: |
+          git config user.name "agastya-bot"
+          git config user.email "agastya-bot@users.noreply.github.com"
+          git add frontend/public/data/jobs.json
+          git diff --quiet --cached || git commit -m "chore: update job listings [automated]"
+          git push

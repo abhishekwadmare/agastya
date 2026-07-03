@@ -1,0 +1,14 @@
+# Local admin secret - never commit this
+admin/token.txt
+
+# Node
+node_modules/
+frontend/dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
