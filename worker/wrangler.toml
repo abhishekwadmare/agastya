@@ -5,7 +5,7 @@ compatibility_date = "2024-09-01"
 # Non-secret configuration - safe to commit, these are not credentials.
 [vars]
 ALLOWED_EMAIL = "abhishek.wadmare@gmail.com"
-GOOGLE_CLIENT_ID = "REPLACE_WITH_YOUR_GOOGLE_OAUTH_CLIENT_ID"
+GOOGLE_CLIENT_ID = "841466924804-a9qu4pn9i35dbk5qlji3klcu2omu02s4.apps.googleusercontent.com"
 GITHUB_OWNER = "REPLACE_WITH_YOUR_GITHUB_USERNAME"
 GITHUB_REPO = "agastya"
 GITHUB_BRANCH = "main"
