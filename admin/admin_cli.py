@@ -66,7 +66,8 @@ def cmd_add_alert(args):
     alert_id = input("Alert id (short, unique, e.g. 'mongodb-swe'): ").strip()
     company = input("Company display name: ").strip()
     tenant = input("Workday tenant (subdomain before .wdN.myworkdayjobs.com): ").strip()
-    site = input("Workday career site name (path after tenant): ").strip()
+    host = input("Workday host, e.g. wd1, wd3, wd5 (check the real careers URL) [wd1]: ").strip() or "wd1"
+    site = input("Workday career site name (short segment, not a full URL): ").strip()
     keywords_any = input("Keywords to match, comma separated: ").strip()
     keywords_exclude = input("Keywords to exclude, comma separated (optional): ").strip()
     location_filter = input("Location filter (optional, free text): ").strip()
@@ -75,6 +76,7 @@ def cmd_add_alert(args):
         "id": alert_id,
         "company": company,
         "workday_tenant": tenant,
+        "workday_host": host,
         "workday_site": site,
         "keywords_any": [k.strip() for k in keywords_any.split(",") if k.strip()],
         "keywords_exclude": [k.strip() for k in keywords_exclude.split(",") if k.strip()],

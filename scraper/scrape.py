@@ -61,14 +61,19 @@ def fetch_workday_jobs(tenant, site, wd_host="wd1", limit=PAGE_SIZE):
     return data.get("jobPostings", [])
 
 
-def matches_alert(job_title, alert):
+def matches_alert(job_title, job_location, alert):
     title_lower = job_title.lower()
+    location_lower = (job_location or "").lower()
+
     keywords_any = [k.lower() for k in alert.get("keywords_any", [])]
     keywords_exclude = [k.lower() for k in alert.get("keywords_exclude", [])]
+    location_filter = (alert.get("location_filter") or "").strip().lower()
 
     if keywords_any and not any(k in title_lower for k in keywords_any):
         return False
     if any(k in title_lower for k in keywords_exclude):
+        return False
+    if location_filter and location_filter not in location_lower:
         return False
     return True
 
@@ -120,7 +125,8 @@ def run():
 
         for raw_job in raw_jobs:
             title = raw_job.get("title", "")
-            if not matches_alert(title, alert):
+            location = raw_job.get("locationsText", "")
+            if not matches_alert(title, location, alert):
                 continue
 
             normalized = normalize_job(raw_job, alert, tenant, site, wd_host)

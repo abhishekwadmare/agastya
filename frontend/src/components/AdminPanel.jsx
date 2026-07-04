@@ -14,10 +14,33 @@ async function callWorker(path, idToken, extraPayload) {
   return data;
 }
 
+// Parses a pasted Workday careers URL like:
+//   https://redhat.wd5.myworkdayjobs.com/jobs/?q=software&a=...
+//   https://mongodb.wd1.myworkdayjobs.com/careers
+// into { tenant, host, site, searchQuery }. Returns null if it doesn't
+// look like a Workday URL.
+function parseWorkdayUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl.trim());
+    const hostMatch = url.hostname.match(/^([^.]+)\.([^.]+)\.myworkdayjobs\.com$/);
+    if (!hostMatch) return null;
+
+    const [, tenant, host] = hostMatch;
+    const site = url.pathname.split("/").filter(Boolean)[0];
+    if (!site) return null;
+
+    const searchQuery = url.searchParams.get("q") || "";
+    return { tenant, host, site, searchQuery };
+  } catch {
+    return null;
+  }
+}
+
 const emptyAlertForm = {
   id: "",
   company: "",
   workday_tenant: "",
+  workday_host: "wd1",
   workday_site: "",
   keywords_any: "",
   keywords_exclude: "",
@@ -30,6 +53,27 @@ export default function AdminPanel({ alerts, onChanged }) {
   const [email, setEmail] = useState(null);
   const [status, setStatus] = useState(null);
   const [form, setForm] = useState(emptyAlertForm);
+  const [pasteUrl, setPasteUrl] = useState("");
+  const [parseNote, setParseNote] = useState(null);
+
+  function handleParseUrl() {
+    const parsed = parseWorkdayUrl(pasteUrl);
+    if (!parsed) {
+      setParseNote({ type: "error", text: "Doesn't look like a myworkdayjobs.com URL - fill in the fields manually." });
+      return;
+    }
+    setForm((f) => ({
+      ...f,
+      workday_tenant: parsed.tenant,
+      workday_host: parsed.host,
+      workday_site: parsed.site,
+      keywords_any: f.keywords_any || parsed.searchQuery,
+    }));
+    setParseNote({
+      type: "success",
+      text: `Parsed: tenant=${parsed.tenant}, host=${parsed.host}, site=${parsed.site}${parsed.searchQuery ? `, search="${parsed.searchQuery}"` : ""}. Double-check below, then set location/other keywords as needed.`,
+    });
+  }
 
   useEffect(() => {
     if (!window.google || !buttonRef.current) return;
@@ -71,6 +115,7 @@ export default function AdminPanel({ alerts, onChanged }) {
           id: form.id.trim(),
           company: form.company.trim(),
           workday_tenant: form.workday_tenant.trim(),
+          workday_host: form.workday_host.trim() || "wd1",
           workday_site: form.workday_site.trim(),
           keywords_any: form.keywords_any.split(",").map((k) => k.trim()).filter(Boolean),
           keywords_exclude: form.keywords_exclude.split(",").map((k) => k.trim()).filter(Boolean),
@@ -181,6 +226,43 @@ export default function AdminPanel({ alerts, onChanged }) {
           </div>
 
           <form onSubmit={handleAddAlert} style={{ display: "grid", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                placeholder="Paste a Workday careers URL to auto-fill tenant/host/site"
+                value={pasteUrl}
+                onChange={(e) => setPasteUrl(e.target.value)}
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <button
+                type="button"
+                onClick={handleParseUrl}
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  background: "var(--surface-raised)",
+                  color: "var(--text-primary)",
+                  border: "1px solid var(--hairline)",
+                  borderRadius: 3,
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Parse
+              </button>
+            </div>
+            {parseNote && (
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 11,
+                  color: parseNote.type === "error" ? "var(--danger)" : "var(--success)",
+                }}
+              >
+                {parseNote.text}
+              </div>
+            )}
+
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <input placeholder="alert id (unique)" value={form.id}
                 onChange={(e) => setForm({ ...form, id: e.target.value })} style={inputStyle} required />
@@ -188,12 +270,16 @@ export default function AdminPanel({ alerts, onChanged }) {
                 onChange={(e) => setForm({ ...form, company: e.target.value })} style={inputStyle} required />
               <input placeholder="workday tenant" value={form.workday_tenant}
                 onChange={(e) => setForm({ ...form, workday_tenant: e.target.value })} style={inputStyle} required />
-              <input placeholder="workday site" value={form.workday_site}
+              <input placeholder="workday host, e.g. wd1, wd3, wd5" value={form.workday_host}
+                onChange={(e) => setForm({ ...form, workday_host: e.target.value })} style={inputStyle} required />
+              <input placeholder="workday site (short segment, not a full URL)" value={form.workday_site}
                 onChange={(e) => setForm({ ...form, workday_site: e.target.value })} style={inputStyle} required />
               <input placeholder="keywords, comma separated" value={form.keywords_any}
                 onChange={(e) => setForm({ ...form, keywords_any: e.target.value })} style={inputStyle} />
               <input placeholder="exclude keywords, comma separated" value={form.keywords_exclude}
                 onChange={(e) => setForm({ ...form, keywords_exclude: e.target.value })} style={inputStyle} />
+              <input placeholder="location contains (e.g. Ireland)" value={form.location_filter}
+                onChange={(e) => setForm({ ...form, location_filter: e.target.value })} style={inputStyle} />
             </div>
             <button
               type="submit"
