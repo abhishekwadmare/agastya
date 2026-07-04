@@ -1,3 +1,18 @@
 {
-  "alerts": []
+  "alerts": [
+    {
+      "id": "1",
+      "company": "Red Hat",
+      "workday_tenant": "redhat",
+      "workday_host": "wd5",
+      "workday_site": "jobs",
+      "keywords_any": [
+        "software",
+        "engineer"
+      ],
+      "keywords_exclude": [],
+      "location_filter": "Ireland",
+      "created_at": "2026-07-04T00:39:29.542Z"
+    }
+  ]
 }
