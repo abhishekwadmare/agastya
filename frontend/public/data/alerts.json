@@ -1,3 +1,16 @@
 {
-  "alerts": []
+  "alerts": [
+    {
+      "id": "1",
+      "company": "redhat",
+      "workday_tenant": "redhat",
+      "workday_site": "https://redhat.wd5.myworkdayjobs.com/jobs/",
+      "keywords_any": [
+        "software"
+      ],
+      "keywords_exclude": [],
+      "location_filter": "",
+      "created_at": "2026-07-04T00:15:54.170Z"
+    }
+  ]
 }
