@@ -142,6 +142,59 @@ async function handleDeleteAlert(payload, env) {
   return { ok: true };
 }
 
+async function handleAddCompany(payload, env) {
+  const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/companies.json`, env);
+
+  const tenant = (payload.company?.workday_tenant || "").trim().toLowerCase();
+  const companyName = (payload.company?.company || "").trim();
+  const site = (payload.company?.workday_site || "").trim();
+  const host = (payload.company?.workday_host || "wd1").trim() || "wd1";
+
+  if (!tenant || !companyName || !site) {
+    throw new Error("company, workday_tenant, and workday_site are required");
+  }
+
+  const newCompany = {
+    id: tenant,
+    company: companyName,
+    workday_tenant: tenant,
+    workday_host: host,
+    workday_site: site,
+    created_at: new Date().toISOString(),
+  };
+
+  if (content.companies.some((c) => c.id === newCompany.id)) {
+    throw new Error(`Company with workday_tenant '${newCompany.id}' already exists`);
+  }
+
+  content.companies.push(newCompany);
+  await githubPutFile(
+    `${DATA_PATH_PREFIX}/companies.json`,
+    content,
+    sha,
+    `admin: add company ${newCompany.id}`,
+    env
+  );
+  return { ok: true, company: newCompany };
+}
+
+async function handleDeleteCompany(payload, env) {
+  const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/companies.json`, env);
+  const before = content.companies.length;
+  content.companies = content.companies.filter((c) => c.id !== payload.id);
+  if (content.companies.length === before) {
+    throw new Error(`No company found with id '${payload.id}'`);
+  }
+  await githubPutFile(
+    `${DATA_PATH_PREFIX}/companies.json`,
+    content,
+    sha,
+    `admin: delete company ${payload.id}`,
+    env
+  );
+  return { ok: true };
+}
+
 async function handleSyncJobs(payload, env) {
   if (!Array.isArray(payload.jobs)) {
     throw new Error("Missing or invalid 'jobs' array");
@@ -231,6 +284,10 @@ export default {
         result = await handleAddAlert(body, env);
       } else if (url.pathname === "/api/delete-alert") {
         result = await handleDeleteAlert(body, env);
+      } else if (url.pathname === "/api/add-company") {
+        result = await handleAddCompany(body, env);
+      } else if (url.pathname === "/api/delete-company") {
+        result = await handleDeleteCompany(body, env);
       } else if (url.pathname === "/api/mark-applied") {
         result = await handleMarkApplied(body, env);
       } else if (url.pathname === "/api/sync-jobs") {

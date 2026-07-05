@@ -35,7 +35,7 @@ function timeAgo(isoString) {
 }
 
 export default function Jobs() {
-  const { jobsData, alertsData, applicationsData, loading } = useData();
+  const { jobsData, companiesData, applicationsData, loading } = useData();
   const [locallyApplied, setLocallyApplied] = useState(readLocalApplied());
   const [activeCompany, setActiveCompany] = useState("all");
 
@@ -72,16 +72,16 @@ export default function Jobs() {
               icon="work"
               title="Jobs tracked"
               count={jobsData.jobs.length}
-              percentage={{ color: "info", amount: "", label: "matching your alerts" }}
+              percentage={{ color: "info", amount: "", label: "across all watched companies" }}
             />
           </Grid>
           <Grid item xs={12} md={4}>
             <ComplexStatisticsCard
               color="success"
-              icon="notifications_active"
-              title="Active alerts"
-              count={alertsData.alerts.length}
-              percentage={{ color: "success", amount: "", label: "companies watched" }}
+              icon="business"
+              title="Companies watched"
+              count={companiesData.companies.length}
+              percentage={{ color: "success", amount: "", label: "career pages tracked" }}
             />
           </Grid>
           <Grid item xs={12} md={4}>
@@ -125,7 +125,7 @@ export default function Jobs() {
           >
             <MDTypography variant="button" color="text">
               No jobs yet. The scraper runs on a schedule — check back after the next scan, or add
-              an alert on the Alerts page.
+              a company on the Companies page.
             </MDTypography>
           </MDBox>
         )}

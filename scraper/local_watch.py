@@ -7,12 +7,13 @@ same Workday endpoints as scrape.py but on a configurable interval,
 writing results to a local JSON file instead of committing to git, and
 firing desktop + Telegram notifications for new postings.
 
-Alert rules and the initial "already seen" baseline are always pulled
-fresh from the live repo on GitHub rather than a local git clone, so
-this stays in sync with whatever's configured in the admin panel
-without needing a git pull. After the first run, the local output file
-itself becomes the "already seen" record - the live jobs.json is never
-touched again, since this script only writes locally.
+The watched-company list and the initial "already seen" baseline are
+always pulled fresh from the live repo on GitHub rather than a local
+git clone, so this stays in sync with whatever's configured on the
+Companies page without needing a git pull. After the first run, the
+local output file itself becomes the "already seen" record - the live
+jobs.json is never touched again, since this script only writes
+locally.
 
 Configure via a .env file in this directory - see .env.example.
 """
@@ -26,7 +27,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from core import find_new_jobs, load_json, save_json
+from core import find_new_jobs_for_companies, load_json, save_json
 from notify import send_telegram_message
 
 try:
@@ -102,23 +103,23 @@ def notify_new_job(job):
 
 def run_cycle(jobs_data):
     try:
-        alerts_data = fetch_live_json("alerts.json")
+        companies_data = fetch_live_json("companies.json")
     except requests.RequestException as e:
-        print(f"Could not fetch live alerts.json ({e}); skipping this cycle.", file=sys.stderr)
+        print(f"Could not fetch live companies.json ({e}); skipping this cycle.", file=sys.stderr)
         return jobs_data
 
     existing_ids = {job["id"] for job in jobs_data["jobs"]}
-    new_jobs = find_new_jobs(alerts_data, existing_ids)
+    new_jobs = find_new_jobs_for_companies(companies_data, existing_ids)
 
     if new_jobs:
-        print(f"Found {len(new_jobs)} new matching job(s).")
+        print(f"Found {len(new_jobs)} new job(s).")
         jobs_data["jobs"] = new_jobs + jobs_data["jobs"]
         jobs_data["last_scraped"] = datetime.now(timezone.utc).isoformat()
         save_json(OUTPUT_PATH, jobs_data)
         for job in new_jobs:
             notify_new_job(job)
     else:
-        print("No new matching jobs this cycle.")
+        print("No new jobs this cycle.")
 
     return jobs_data
 

@@ -5,11 +5,13 @@ const DataContext = createContext(null);
 
 const EMPTY_JOBS = { last_scraped: null, jobs: [] };
 const EMPTY_ALERTS = { alerts: [] };
+const EMPTY_COMPANIES = { companies: [] };
 const EMPTY_APPLICATIONS = { applications: [] };
 
 export function DataProvider({ children }) {
   const [jobsData, setJobsData] = useState(EMPTY_JOBS);
   const [alertsData, setAlertsData] = useState(EMPTY_ALERTS);
+  const [companiesData, setCompaniesData] = useState(EMPTY_COMPANIES);
   const [applicationsData, setApplicationsData] = useState(EMPTY_APPLICATIONS);
   const [loading, setLoading] = useState(true);
 
@@ -20,12 +22,14 @@ export function DataProvider({ children }) {
     return Promise.all([
       fetch(`${base}data/jobs.json${bust}`).then((r) => r.json()).catch(() => EMPTY_JOBS),
       fetch(`${base}data/alerts.json${bust}`).then((r) => r.json()).catch(() => EMPTY_ALERTS),
+      fetch(`${base}data/companies.json${bust}`).then((r) => r.json()).catch(() => EMPTY_COMPANIES),
       fetch(`${base}data/applications.json${bust}`)
         .then((r) => r.json())
         .catch(() => EMPTY_APPLICATIONS),
-    ]).then(([jobs, alerts, applications]) => {
+    ]).then(([jobs, alerts, companies, applications]) => {
       setJobsData(jobs);
       setAlertsData(alerts);
+      setCompaniesData(companies);
       setApplicationsData(applications);
       setLoading(false);
     });
@@ -36,7 +40,9 @@ export function DataProvider({ children }) {
   }, [reload]);
 
   return (
-    <DataContext.Provider value={{ jobsData, alertsData, applicationsData, loading, reload }}>
+    <DataContext.Provider
+      value={{ jobsData, alertsData, companiesData, applicationsData, loading, reload }}
+    >
       {children}
     </DataContext.Provider>
   );

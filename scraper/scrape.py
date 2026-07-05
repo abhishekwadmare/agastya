@@ -2,8 +2,9 @@
 """
 Agastya scraper
 -----------------
-Runs on GitHub Actions cron. Polls each alert's Workday endpoint (see
-core.py) and writes newly matched postings into data/jobs.json.
+Runs on GitHub Actions cron. Polls each watched company's Workday
+endpoint (see core.py) and writes newly found postings into
+data/jobs.json.
 """
 
 import os
@@ -11,30 +12,30 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core import find_new_jobs, load_json, save_json
+from core import find_new_jobs_for_companies, load_json, save_json
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "frontend" / "public" / "data"
-ALERTS_FILE = DATA_DIR / "alerts.json"
+COMPANIES_FILE = DATA_DIR / "companies.json"
 JOBS_FILE = DATA_DIR / "jobs.json"
 
 
 def run():
-    if not ALERTS_FILE.exists():
-        print(f"No alerts file found at {ALERTS_FILE}", file=sys.stderr)
+    if not COMPANIES_FILE.exists():
+        print(f"No companies file found at {COMPANIES_FILE}", file=sys.stderr)
         sys.exit(1)
 
-    alerts_data = load_json(ALERTS_FILE)
+    companies_data = load_json(COMPANIES_FILE)
     jobs_data = load_json(JOBS_FILE) if JOBS_FILE.exists() else {"last_scraped": None, "jobs": []}
 
     existing_ids = {job["id"] for job in jobs_data["jobs"]}
-    new_jobs = find_new_jobs(alerts_data, existing_ids)
+    new_jobs = find_new_jobs_for_companies(companies_data, existing_ids)
 
     if new_jobs:
-        print(f"Found {len(new_jobs)} new matching job(s).")
+        print(f"Found {len(new_jobs)} new job(s).")
         jobs_data["jobs"] = new_jobs + jobs_data["jobs"]
     else:
-        print("No new matching jobs this run.")
+        print("No new jobs this run.")
 
     jobs_data["last_scraped"] = datetime.now(timezone.utc).isoformat()
     save_json(JOBS_FILE, jobs_data)
