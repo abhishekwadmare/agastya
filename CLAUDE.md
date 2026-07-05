@@ -35,9 +35,13 @@ scraper/   Python. Runs on GitHub Actions cron (every 4h). Polls each
            frontend/public/data/jobs.json, commits back to the repo.
 
 frontend/  React + Vite, deployed to GitHub Pages via GitHub Actions.
-           Reads the JSON files in public/data/. Includes a Google
-           Sign-In admin panel, but the frontend NEVER decides who's
-           authorized - it just calls the Worker and shows the result.
+           UI is built on Material Dashboard React (Creative Tim, MUI-
+           based) - see "UI framework" below for why. Multi-page via
+           HashRouter (Jobs / Alerts / Applications), not a single page
+           anymore. Reads the JSON files in public/data/. The Alerts
+           page has the Google Sign-In admin controls, but the frontend
+           NEVER decides who's authorized - it just calls the Worker and
+           shows the result.
 
 worker/    Cloudflare Worker. This is the actual security boundary.
            Verifies the Google ID token server-side (checks it against
@@ -75,20 +79,23 @@ Worker.
 - **Auth: Google Sign-In, restricted to abhishek.wadmare@gmail.com**,
   verified server-side in the Worker. Not a password. This was an
   explicit upgrade from an earlier local-token-only design.
-- **Color theme**: forest green / saffron orange / bark brown, sampled
-  from a reference image of the sage Agastya meditating. Tokens are in
-  `frontend/src/index.css`. Contrast ratios were actually checked
-  (WCAG), not eyeballed - see the ratios below if changing colors:
-  - text-primary on bg: 14.4:1
-  - accent on bg: 6.35:1
-  - danger on bg: 4.72:1 (was 4.05:1 originally, bumped for AA compliance)
-  Keep new colors within this same earthy palette family and re-check
-  contrast if changing them.
-- **Design signature elements** (don't strip these out for being
-  "unnecessary" - they're deliberate): the SweepBar's "BEARING TAKEN"
-  language (a navigation term, nodding to the Canopus association) and
-  its animated amber sweep; the radial glow behind the header echoing
-  the light in the reference image.
+- **UI framework: Material Dashboard React (Creative Tim), fully
+  adopted** - MUI v5 component library, theme system, and layout shell
+  (Sidenav/Navbar/DashboardLayout), ported onto Vite (the template
+  itself ships on Create React App, which we deliberately did not
+  adopt - CRA is unmaintained, Vite needed only path aliases and a
+  `regenerator-runtime` polyfill for `react-table` to make ported `.js`
+  files with JSX and CRA-authored dependencies work). This was an
+  explicit, deliberate decision by Abhi, made with the tradeoffs (losing
+  the custom look below, adding ~10 new dependencies) spelled out first.
+- **Superseded: the old forest green / saffron orange / bark brown
+  palette and the two bespoke "signature" visual elements** (SweepBar's
+  animated "BEARING TAKEN" sweep, the radial glow behind the header).
+  These were previously documented here as deliberate and protected -
+  they are now intentionally retired in favor of Material Dashboard's
+  own look, not accidentally lost. Do not treat their absence as a bug
+  or try to resurrect them without checking with Abhi first; this note
+  exists specifically so a future session doesn't "fix" this.
 - **Does not scrape LinkedIn.** Deliberate scope decision - LinkedIn's
   ToS prohibits it and risks account suspension. Workday's endpoint is
   public/unauthenticated by design, which is a materially different
@@ -109,8 +116,9 @@ Worker.
   pasted into it instead of the short segment, and the host defaulted
   to wd1 when Red Hat actually uses wd5)
 - Added a "paste a Workday URL" parser in the add-alert form
-  (`parseWorkdayUrl` in AdminPanel.jsx) specifically to prevent that
-  class of mistake happening again
+  (`parseWorkdayUrl`, now in `frontend/src/lib/parseWorkdayUrl.js`,
+  used from `frontend/src/layouts/alerts/index.jsx`) specifically to
+  prevent that class of mistake happening again
 - `location_filter` was defined in the data model early on but the
   scraper silently never applied it - this has been fixed, but if
   you're auditing for similar dead fields, check for others
