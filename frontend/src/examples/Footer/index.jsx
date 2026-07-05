@@ -16,6 +16,9 @@ Coded by www.creative-tim.com
 // prop-types is a library for typechecking of props
 import PropTypes from "prop-types";
 
+// react-router
+import { Link as RouterLink } from "react-router-dom";
+
 // @mui material components
 import Link from "@mui/material/Link";
 import Icon from "@mui/material/Icon";
@@ -27,6 +30,10 @@ import MDTypography from "components/MDTypography";
 // Material Dashboard 2 React base styles
 import typography from "assets/theme/base/typography";
 
+function isInternalLink(href) {
+  return href.startsWith("/");
+}
+
 function Footer({ company, links }) {
   const { href, name } = company;
   const { size } = typography;
@@ -34,11 +41,19 @@ function Footer({ company, links }) {
   const renderLinks = () =>
     links.map((link) => (
       <MDBox key={link.name} component="li" px={2} lineHeight={1}>
-        <Link href={link.href} target="_blank">
-          <MDTypography variant="button" fontWeight="regular" color="text">
-            {link.name}
-          </MDTypography>
-        </Link>
+        {isInternalLink(link.href) ? (
+          <Link component={RouterLink} to={link.href}>
+            <MDTypography variant="button" fontWeight="regular" color="text">
+              {link.name}
+            </MDTypography>
+          </Link>
+        ) : (
+          <Link href={link.href} target="_blank" rel="noreferrer">
+            <MDTypography variant="button" fontWeight="regular" color="text">
+              {link.name}
+            </MDTypography>
+          </Link>
+        )}
       </MDBox>
     ));
 
@@ -67,12 +82,12 @@ function Footer({ company, links }) {
           </Icon>
         </MDBox>
         by
-        <Link href={href} target="_blank">
+        <Link href={href} target="_blank" rel="noreferrer">
           <MDTypography variant="button" fontWeight="medium">
             &nbsp;{name}&nbsp;
           </MDTypography>
         </Link>
-        for a better web.
+        while job hunting.
       </MDBox>
       <MDBox
         component="ul"
@@ -99,12 +114,11 @@ function Footer({ company, links }) {
 
 // Setting default values for the props of Footer
 Footer.defaultProps = {
-  company: { href: "https://www.creative-tim.com/", name: "Creative Tim" },
+  company: { href: "https://github.com/abhishekwadmare", name: "Abhishek Wadmare" },
   links: [
-    { href: "https://www.creative-tim.com/", name: "Creative Tim" },
-    { href: "https://www.creative-tim.com/presentation", name: "About Us" },
-    { href: "https://www.creative-tim.com/blog", name: "Blog" },
-    { href: "https://www.creative-tim.com/license", name: "License" },
+    { href: "/about", name: "About" },
+    { href: "https://github.com/abhishekwadmare/agastya", name: "GitHub" },
+    { href: "https://github.com/abhishekwadmare/agastya/blob/main/LICENSE", name: "License" },
   ],
 };
 

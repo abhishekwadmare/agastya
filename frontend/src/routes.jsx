@@ -3,6 +3,7 @@ import Icon from "@mui/material/Icon";
 import Jobs from "layouts/jobs";
 import Alerts from "layouts/alerts";
 import Applications from "layouts/applications";
+import About from "layouts/about";
 
 const routes = [
   {
@@ -28,6 +29,14 @@ const routes = [
     icon: <Icon fontSize="small">send</Icon>,
     route: "/applications",
     component: <Applications />,
+  },
+  {
+    type: "collapse",
+    name: "About",
+    key: "about",
+    icon: <Icon fontSize="small">info</Icon>,
+    route: "/about",
+    component: <About />,
   },
 ];
 
