@@ -30,11 +30,14 @@ went through this decision carefully.
 
 ```
 scraper/   Python. Runs on GitHub Actions cron (every 4h, currently
-           paused - see git log). Polls each watched company's Workday
-           CXS endpoint (companies.json, paginated - see below), writes
-           new jobs into frontend/public/data/jobs.json unfiltered,
-           commits back to the repo. A separate local_watch.py runs the
-           same logic continuously on Abhi's own machine instead.
+           paused - see git log) or on demand via the Jobs page's
+           "Fetch jobs now" button (admin only). Polls each watched
+           company's Workday CXS endpoint (companies.json, paginated -
+           see below), writes new jobs into frontend/public/data/jobs.json
+           unfiltered, commits back to the repo, then explicitly
+           dispatches deploy.yml itself (see "Known quirks" below - this
+           is not optional). A separate local_watch.py runs the same
+           logic continuously on Abhi's own machine instead.
 
 frontend/  React + Vite, deployed to GitHub Pages via GitHub Actions.
            UI is built on Material Dashboard React (Creative Tim, MUI-
@@ -52,7 +55,13 @@ worker/    Cloudflare Worker. This is the actual security boundary.
            Google's tokeninfo endpoint, confirms aud/email/email_verified/
            exp), and only if the email matches ALLOWED_EMAIL does it
            write to the GitHub repo via the Contents API, using a
-           GitHub token stored as a Worker secret.
+           GitHub token stored as a Worker secret - or, for
+           /api/fetch-jobs, dispatches scrape.yml via the GitHub Actions
+           API using that same token. That token needs BOTH Contents:
+           read/write AND Actions: read/write scopes now; it originally
+           only had Contents, so fetch-jobs will 403 until the scope is
+           widened (this bit Abhi once already - check before assuming
+           it's set).
 
 admin/     Local-only CLI, kept as an offline fallback for when Abhi
            doesn't want to go through the browser. Uses a hashed
@@ -83,6 +92,33 @@ filtering-by-individual-user is a deferred future feature; right now
 every posting from a watched company shows up on Jobs, unfiltered.
 Don't merge these back together or delete `alerts.json` without
 checking with Abhi - it's intentionally kept for that later feature.
+
+## Known quirks (already hit and fixed once - don't rediscover these)
+
+- **GitHub's loop-prevention silently broke the deploy pipeline.** A
+  commit pushed using a workflow's own auto-generated GITHUB_TOKEN does
+  NOT trigger other workflows, even when `on.push.paths` matches. This
+  meant scrape.yml's commit to jobs.json never triggered deploy.yml -
+  jobs were correctly landing in the repo but the live site kept
+  serving a stale build indefinitely. Confirmed via Actions run
+  history (last deploy predated the last scrape). Fixed by scrape.yml
+  explicitly dispatching deploy.yml itself via the Actions API
+  (requires `permissions: actions: write` in scrape.yml, added). If a
+  future workflow commits data and expects Pages to reflect it
+  automatically, it needs this same explicit dispatch step - don't
+  assume `on.push.paths` alone is enough when the push comes from
+  inside another workflow.
+- **Google Identity Services button intermittently missing.** The GSI
+  script tag loads `async defer`; the original code checked for
+  `window.google` exactly once, synchronously, on mount, with no
+  retry - if the script hadn't loaded yet (common on a slower
+  connection), sign-in silently never initialized for that whole page
+  load. Fixed in `AuthContext.jsx` via `waitForGoogle()`, a poll (100ms
+  interval, 10s timeout) instead of a single check. Verified directly
+  by simulating the script arriving ~1.2s late and confirming the poll
+  still catches it. Any future code that touches `window.google`
+  directly should go through `waitForGoogle()` rather than
+  reintroducing a one-shot check.
 
 ## Key decisions already made (don't redo these debates)
 
@@ -138,8 +174,9 @@ checking with Abhi - it's intentionally kept for that later feature.
 - GitHub Pages deployed and working: abhishekwadmare.github.io/agastya/
 - Google OAuth client created and wired in
 - Cloudflare Worker deployed (agastya-admin.abhishekwadmare.workers.dev)
-  and confirmed working end-to-end: sign-in -> add alert -> commit
-  appears in repo
+  and confirmed working end-to-end: sign-in -> add company -> commit
+  appears in repo -> Fetch jobs now -> scrape.yml runs -> deploy.yml
+  rebuilds Pages -> live site shows real postings (222 from Red Hat)
 - Known-good example company/alert values (Red Hat): tenant=`redhat`,
   host=`wd5`, site=`jobs` - useful as a reference for testing, since we
   hit and fixed a real bug here (site field was getting a full URL
