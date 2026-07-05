@@ -41,16 +41,17 @@ export default function About() {
                 <MDTypography variant="body2" color="text" mb={2}>
                   Agastya is a self-hosted job alert system. It watches Workday-hosted company
                   career pages directly via their public JSON API — rather than waiting on
-                  LinkedIn or Indeed syndication — matches new postings against per-company
-                  keyword and location rules, and surfaces them here as soon as they're found. A
-                  companion script can also run continuously on a local machine for faster,
-                  desktop/Telegram-notified alerts between scheduled scans.
+                  LinkedIn or Indeed syndication — and surfaces every posting from each watched
+                  company here as soon as it's found. A companion script can also run
+                  continuously on a local machine for faster, desktop/Telegram-notified alerts
+                  between scheduled scans.
                 </MDTypography>
                 <MDTypography variant="body2" color="text" mb={2}>
-                  Alerts are managed through the Alerts page, gated by Google Sign-In — but the
-                  frontend never decides who's authorized on its own. Every write goes through a
-                  Cloudflare Worker that verifies the sign-in server-side before touching
-                  anything, which is the actual security boundary here.
+                  Which companies get watched is managed through the Companies page, gated by
+                  Google Sign-In — but the frontend never decides who's authorized on its own.
+                  Every write goes through a Cloudflare Worker that verifies the sign-in
+                  server-side before touching anything, which is the actual security boundary
+                  here.
                 </MDTypography>
 
                 <MDTypography variant="button" fontWeight="medium" display="block" mb={1}>
