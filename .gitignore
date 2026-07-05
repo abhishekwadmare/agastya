@@ -1,6 +1,9 @@
 # Local admin secret - never commit this
 admin/token.txt
 
+# Local watcher config - never commit this
+scraper/.env
+
 # Node
 node_modules/
 frontend/dist/

@@ -137,6 +137,28 @@ python admin/admin_cli.py mark-applied --job-id "<id>"
 
 Then commit and push `frontend/public/data/` yourself.
 
+## Local job watcher (desktop + Telegram notifications)
+
+Runs continuously on your own machine instead of waiting on the 4-hour
+GitHub Actions cron. Polls the same Workday endpoints on a configurable
+interval (default 30 min, minimum 20), fires a desktop popup and/or
+Telegram message for new postings, and writes results to a local JSON
+file (default your Downloads folder) - it never commits anything back
+to the repo.
+
+Alert rules and the initial "already seen" baseline are always fetched
+fresh from the live repo on GitHub, so this stays in sync with whatever
+you've configured in the admin panel without needing a `git pull`.
+
+```bash
+cd scraper
+pip install -r requirements.txt -r requirements-local.txt
+cp .env.example .env   # edit as needed - interval, output path, Telegram creds
+python local_watch.py
+```
+
+Leave it running in a terminal; stop with Ctrl+C.
+
 ## Local development
 
 ```bash
