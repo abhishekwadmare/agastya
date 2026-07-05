@@ -29,19 +29,23 @@ went through this decision carefully.
 ## Architecture (why it's shaped this way)
 
 ```
-scraper/   Python. Runs on GitHub Actions cron (every 4h). Polls each
-           alert's Workday CXS endpoint, matches title + location
-           against keyword/location rules, writes new jobs into
-           frontend/public/data/jobs.json, commits back to the repo.
+scraper/   Python. Runs on GitHub Actions cron (every 4h, currently
+           paused - see git log). Polls each watched company's Workday
+           CXS endpoint (companies.json, paginated - see below), writes
+           new jobs into frontend/public/data/jobs.json unfiltered,
+           commits back to the repo. A separate local_watch.py runs the
+           same logic continuously on Abhi's own machine instead.
 
 frontend/  React + Vite, deployed to GitHub Pages via GitHub Actions.
            UI is built on Material Dashboard React (Creative Tim, MUI-
-           based) - see "UI framework" below for why. Multi-page via
-           HashRouter (Jobs / Alerts / Applications), not a single page
-           anymore. Reads the JSON files in public/data/. The Alerts
-           page has the Google Sign-In admin controls, but the frontend
-           NEVER decides who's authorized - it just calls the Worker and
-           shows the result.
+           based) - see "UI framework" below for why, and "UI template
+           reference" for the exact source URL to reuse when adding new
+           pages. Multi-page via HashRouter (Jobs / Companies / Alerts /
+           Applications / About), not a single page anymore. Reads the
+           JSON files in public/data/. The Companies and Alerts pages
+           have Google Sign-In admin controls, but the frontend NEVER
+           decides who's authorized - it just calls the Worker and shows
+           the result.
 
 worker/    Cloudflare Worker. This is the actual security boundary.
            Verifies the Google ID token server-side (checks it against
@@ -66,9 +70,19 @@ client-side secrets when adding features - route writes through the
 Worker.
 
 **Single source of truth for data:** all JSON data (`jobs.json`,
-`alerts.json`, `applications.json`) lives in ONE place:
-`frontend/public/data/`. We deliberately removed an earlier separate
-`data/` folder and its sync step - don't reintroduce a second copy.
+`alerts.json`, `companies.json`, `applications.json`) lives in ONE
+place: `frontend/public/data/`. We deliberately removed an earlier
+separate `data/` folder and its sync step - don't reintroduce a second
+copy.
+
+**Companies vs. Alerts:** `companies.json` (which Workday career pages
+to poll - the scraper's actual data source now) is deliberately
+separate from `alerts.json` (per-viewer keyword/location filters,
+currently dormant/unused by the scraper). This split exists because
+filtering-by-individual-user is a deferred future feature; right now
+every posting from a watched company shows up on Jobs, unfiltered.
+Don't merge these back together or delete `alerts.json` without
+checking with Abhi - it's intentionally kept for that later feature.
 
 ## Key decisions already made (don't redo these debates)
 
@@ -96,6 +110,22 @@ Worker.
   own look, not accidentally lost. Do not treat their absence as a bug
   or try to resurrect them without checking with Abhi first; this note
   exists specifically so a future session doesn't "fix" this.
+- **UI template reference: reuse this, don't reinvent per feature.**
+  The frontend's entire look and component library comes from
+  [Material Dashboard React](https://github.com/creativetimofficial/material-dashboard-react)
+  (Creative Tim, MIT licensed). When adding a new page or UI element,
+  check that repo first for an existing component/pattern to port
+  rather than hand-rolling new styling - that's how every page so far
+  (Jobs, Companies, Alerts, Applications, About) stays visually
+  consistent. Ported subset lives under `frontend/src/{assets/theme,
+  assets/theme-dark, components/MD*, examples/*}` - copy from the
+  template's matching path when you need something not already ported
+  (e.g. a chart or a card variant), rather than designing from scratch.
+  The exact write-up of what's ported vs. skipped, and the CRA-to-Vite
+  adaptation notes (path aliases, `regenerator-runtime` polyfill,
+  Material Icons font is the *Rounded* variant not the classic one) are
+  in the commit that did the migration - `git log --oneline --grep
+  Material` if you need the full reasoning.
 - **Does not scrape LinkedIn.** Deliberate scope decision - LinkedIn's
   ToS prohibits it and risks account suspension. Workday's endpoint is
   public/unauthenticated by design, which is a materially different
@@ -110,32 +140,33 @@ Worker.
 - Cloudflare Worker deployed (agastya-admin.abhishekwadmare.workers.dev)
   and confirmed working end-to-end: sign-in -> add alert -> commit
   appears in repo
-- Known-good example alert values (Red Hat): tenant=`redhat`,
+- Known-good example company/alert values (Red Hat): tenant=`redhat`,
   host=`wd5`, site=`jobs` - useful as a reference for testing, since we
   hit and fixed a real bug here (site field was getting a full URL
   pasted into it instead of the short segment, and the host defaulted
   to wd1 when Red Hat actually uses wd5)
-- Added a "paste a Workday URL" parser in the add-alert form
-  (`parseWorkdayUrl`, now in `frontend/src/lib/parseWorkdayUrl.js`,
-  used from `frontend/src/layouts/alerts/index.jsx`) specifically to
-  prevent that class of mistake happening again
+- Added a "paste a Workday URL" parser (`parseWorkdayUrl`, in
+  `frontend/src/lib/parseWorkdayUrl.js`, used from both the Companies
+  and Alerts pages) specifically to prevent that class of mistake
+  happening again
 - `location_filter` was defined in the data model early on but the
-  scraper silently never applied it - this has been fixed, but if
-  you're auditing for similar dead fields, check for others
-- Not yet tested against a live tenant beyond Red Hat - field names in
-  `normalize_job()` (jobPostings, externalPath, postedOn, locationsText)
-  are the documented Workday CXS shape but haven't been verified against
-  every company Abhi cares about (MongoDB, Cisco, Workday, Arista,
-  Dolby, Bending Spoons)
+  scraper silently never applied it - this has been fixed on the (now
+  dormant) alert path, but if you're auditing for similar dead fields,
+  check for others
+- Pagination confirmed working against Red Hat's real tenant: fetched
+  222 postings, not just the old 20-job-per-company cap
+- Field names in `normalize_job_from_company()` (jobPostings,
+  externalPath, postedOn, locationsText) are the documented Workday CXS
+  shape but haven't been verified against every company Abhi cares
+  about beyond Red Hat (MongoDB, Cisco, Workday, Arista, Dolby, Bending
+  Spoons)
 
 ## Open items / likely next asks
 
 - Auto-parse the Workday URL on paste instead of requiring a button
   click (was requested, not yet implemented)
-- No "edit alert" - only add/delete. Editing currently means delete +
-  re-add.
-- No pagination/offset handling in the scraper beyond the first page of
-  results per company (PAGE_SIZE=20)
+- No "edit" for alerts or companies - only add/delete. Editing
+  currently means delete + re-add.
 - Telegram notifications are wired but need TELEGRAM_BOT_TOKEN /
   TELEGRAM_CHAT_ID secrets set in GitHub Actions to actually fire -
   check whether Abhi has done this yet before assuming it's live
