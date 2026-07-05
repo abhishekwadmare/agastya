@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   scrape:
@@ -41,3 +42,16 @@ jobs:
           git add frontend/public/data/jobs.json
           git diff --quiet --cached || git commit -m "chore: update job listings [automated]"
           git push
+
+      # A push made with this workflow's own token does NOT trigger
+      # other workflows (GitHub's built-in loop-prevention) - so
+      # deploy.yml never rebuilds Pages on its own. Dispatch it
+      # explicitly, only when something actually changed.
+      - name: Trigger a Pages rebuild
+        if: steps.scrape.outputs.new_jobs_count != '0'
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/dispatches" \
+            -d '{"ref":"${{ github.ref_name }}"}'
