@@ -2,42 +2,56 @@
 
 A self-hosted job alert system that monitors Workday-hosted company career
 pages directly (rather than waiting for LinkedIn/Indeed syndication),
-surfaces new postings on a public multi-page dashboard (Jobs / Alerts /
-Applications / About), and sends desktop + Telegram notifications. Anyone
-can view the dashboard and even fill out the add-alert form, but actually
-adding, deleting, or syncing anything requires signing in with a specific
-Google account - enforced server-side, not just in the browser.
+surfaces new postings on a public multi-page dashboard (Jobs / Companies /
+Alerts / Applications / About), and sends desktop + Telegram notifications.
+Anyone can view the dashboard and even fill out the add-company/add-alert
+forms, but actually adding, deleting, syncing, or triggering a scrape
+requires signing in with a specific Google account - enforced server-side,
+not just in the browser.
 
 ## Screenshots
 
-| Jobs | Alerts |
+| Jobs | Companies |
 |---|---|
-| ![Jobs page](docs/screenshots/jobs.png) | ![Alerts page](docs/screenshots/alerts.png) |
+| ![Jobs page](docs/screenshots/jobs.png) | ![Companies page](docs/screenshots/companies.png) |
 
-| Applications | About |
+| Alerts | Applications |
 |---|---|
-| ![Applications page](docs/screenshots/applications.png) | ![About page](docs/screenshots/about.png) |
+| ![Alerts page](docs/screenshots/alerts.png) | ![Applications page](docs/screenshots/applications.png) |
+
+| About |
+|---|
+| ![About page](docs/screenshots/about.png) |
 
 ## Architecture
 
 ```
-scraper/   Python, runs on a GitHub Actions cron schedule. Polls each
-           tracked company's public Workday JSON API, writes matches into
-           frontend/public/data/jobs.json, commits the change.
+scraper/   Python. Polls every company in companies.json's public
+           Workday JSON API (paginated - fetches everything, not just
+           the first page), writes ALL postings into
+           frontend/public/data/jobs.json unfiltered, commits the
+           change, then dispatches deploy.yml itself so GitHub Pages
+           rebuilds with the new data (a plain push from this workflow
+           doesn't trigger other workflows on its own - see "Known
+           quirks" below). Runs via GitHub Actions cron (currently
+           paused) or on demand via the Jobs page's "Fetch jobs now"
+           button.
 
 frontend/  React (Vite) + Material Dashboard React (MUI-based, Creative
-           Tim), deployed to GitHub Pages. Multi-page - Jobs, Alerts,
-           Applications, About - via HashRouter (no server-side routing
-           needed on static hosting). Reads the JSON files and displays
-           them. The Alerts page has "Sign in with Google" admin
-           controls - but the frontend itself never decides who's
-           allowed to write anything; it just calls the Worker and shows
-           the result.
+           Tim), deployed to GitHub Pages. Multi-page - Jobs, Companies,
+           Alerts, Applications, About - via HashRouter (no server-side
+           routing needed on static hosting). Reads the JSON files and
+           displays them. The Companies and Alerts pages have "Sign in
+           with Google" admin controls - but the frontend itself never
+           decides who's allowed to write anything; it just calls the
+           Worker and shows the result.
 
 worker/    A Cloudflare Worker. Verifies the Google ID token it receives,
            checks the token's email against ALLOWED_EMAIL, and only then
            writes to the GitHub repo using a GitHub token stored as a
-           Worker secret. This is the actual security boundary.
+           Worker secret (or, for "Fetch jobs now", dispatches the
+           scraper workflow via the GitHub Actions API). This is the
+           actual security boundary.
 
 admin/     A local-only CLI, kept as an offline fallback. Uses a hashed
            password in a git-ignored token.txt. Useful if you want to
@@ -47,6 +61,26 @@ admin/     A local-only CLI, kept as an offline fallback. Uses a hashed
 Nothing sensitive - no GitHub token, no password - is ever present in the
 deployed frontend bundle. The Google client ID and Worker URL in
 `frontend/src/config.js` are meant to be public.
+
+**Companies vs. Alerts:** `companies.json` (which Workday career pages to
+watch) is what actually drives the scraper. `alerts.json` still exists
+and is still fully functional to edit, but nothing reads it anymore -
+it's reserved for a future per-viewer keyword/location filtering
+feature. Every posting from a watched company shows up on Jobs today,
+unfiltered.
+
+**Known quirks worth knowing before you debug them:**
+- GitHub Actions has a built-in loop-prevention rule: a commit pushed
+  using a workflow's own auto-generated token does not trigger other
+  workflows, even if their `on.push.paths` would otherwise match.
+  `scrape.yml` works around this by explicitly dispatching `deploy.yml`
+  itself after a successful scrape - if you fork this and see new jobs
+  in the repo but not on the live site, this is almost certainly why.
+- The Google Identity Services script loads `async`/`defer`, so it may
+  not be ready the instant a page mounts. The sign-in button polls for
+  it (100ms interval, 10s timeout) rather than checking once, so it
+  should always eventually appear - if it doesn't within ~10s, the
+  script itself failed to load (network block, ad blocker, etc).
 
 ## 1. Google OAuth client (for Sign-In)
 
@@ -62,8 +96,11 @@ deployed frontend bundle. The Google client ID and Worker URL in
 1. Push this project to a new GitHub repo.
 2. Create a **fine-grained personal access token**
    (Settings → Developer settings → Fine-grained tokens) scoped to just
-   this repo, with **Contents: read and write** permission and nothing
-   else.
+   this repo, with **Contents: read and write** AND **Actions: read and
+   write** permissions. The second one is easy to miss but required -
+   without it, the Jobs page's "Fetch jobs now" button (and the
+   scraper's own post-scrape Pages-rebuild step) will fail with a
+   permissions error.
 
 ## 3. Deploy the Cloudflare Worker
 
@@ -116,16 +153,18 @@ to GitHub Pages.
 Not every company uses Workday - check by visiting their careers page. If
 the URL looks like `https://<tenant>.wd1.myworkdayjobs.com/<site>/...`,
 you're good. Note the `wd1` part - it's sometimes `wd3`, `wd5`, etc; the
-scraper currently assumes `wd1` (edit `scraper/scrape.py`'s
-`workday_host` default if a company uses a different one).
+Companies page's "paste a Workday URL" parser fills this in for you
+automatically, so you shouldn't need to edit code for this.
 
-## 7. Add your first alert
+## 7. Add your first company
 
-Once deployed, visit your live site's **Alerts** page. Anyone can see
-the current alerts and fill out the add-alert form, but submitting
+Once deployed, visit your live site's **Companies** page. Anyone can see
+the watched companies and fill out the add-company form, but submitting
 requires clicking **Sign in with Google** (top-right) and signing in as
-the allowed email first. Changes are committed to the repo by the
-Worker within a few seconds.
+the allowed email first. Once added, every posting from that company
+shows up on the Jobs page - unfiltered, no keyword/location matching
+yet (that's a deferred per-viewer feature; the **Alerts** page still
+works if you want to use it, it's just not wired into the scraper).
 
 ## 8. (Optional) Telegram notifications
 
@@ -137,11 +176,14 @@ Worker within a few seconds.
    - `TELEGRAM_BOT_TOKEN`
    - `TELEGRAM_CHAT_ID`
 
-## 9. Run the scraper manually the first time
+## 9. Run the scraper
 
-**Actions tab → Scrape jobs → Run workflow.** After that it runs
-automatically every 4 hours (edit the cron in
-`.github/workflows/scrape.yml` to change the frequency).
+Either click **Fetch jobs now** on the live site's Jobs page (signed in
+as the allowed email), or trigger it manually from GitHub: **Actions tab
+→ Scrape jobs → Run workflow**. Both dispatch the same workflow. The
+cron schedule is currently commented out in
+`.github/workflows/scrape.yml` - uncomment it (and adjust the interval)
+if you want it to run automatically again.
 
 ## Offline / local admin fallback
 
@@ -165,9 +207,10 @@ Telegram message for new postings, and writes results to a local JSON
 file (default your Downloads folder) - it never commits anything back
 to the repo.
 
-Alert rules and the initial "already seen" baseline are always fetched
-fresh from the live repo on GitHub, so this stays in sync with whatever
-you've configured on the Alerts page without needing a `git pull`.
+The watched-company list and the initial "already seen" baseline are
+always fetched fresh from the live repo on GitHub, so this stays in
+sync with whatever you've configured on the Companies page without
+needing a `git pull`.
 
 ```bash
 cd scraper
