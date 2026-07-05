@@ -61,9 +61,20 @@ export default function Alerts() {
     });
   }
 
+  function requireSignIn() {
+    if (idToken) return true;
+    setStatus({
+      type: "error",
+      text: "Sign in with Google (top-right) to make changes - only the site owner's account is authorized.",
+    });
+    window.google?.accounts.id.prompt();
+    return false;
+  }
+
   async function handleAddAlert(e) {
     e.preventDefault();
     setStatus(null);
+    if (!requireSignIn()) return;
     try {
       await callWorker("/api/add-alert", idToken, {
         alert: {
@@ -87,6 +98,7 @@ export default function Alerts() {
 
   async function handleDeleteAlert(id) {
     setStatus(null);
+    if (!requireSignIn()) return;
     try {
       await callWorker("/api/delete-alert", idToken, { id });
       setStatus({ type: "success", text: `Deleted alert '${id}'.` });
@@ -102,6 +114,7 @@ export default function Alerts() {
     if (!file) return;
 
     setStatus(null);
+    if (!requireSignIn()) return;
     try {
       const parsed = JSON.parse(await file.text());
       if (!Array.isArray(parsed.jobs)) {
@@ -119,174 +132,170 @@ export default function Alerts() {
     <DashboardLayout>
       <DashboardNavbar />
       <MDBox py={3}>
-        {!idToken ? (
-          <Card>
-            <MDBox p={3}>
-              <MDTypography variant="button" color="text">
-                Sign in with the Google account shown in the top-right corner to manage alerts.
-              </MDTypography>
-            </MDBox>
-          </Card>
-        ) : (
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={5}>
-              <Card>
-                <MDBox p={3}>
-                  <MDTypography variant="h6" mb={2}>
-                    Current alerts
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={5}>
+            <Card>
+              <MDBox p={3}>
+                <MDTypography variant="h6" mb={2}>
+                  Current alerts
+                </MDTypography>
+                {alertsData.alerts.length === 0 && (
+                  <MDTypography variant="button" color="text">
+                    No alerts yet — add one on the right.
                   </MDTypography>
-                  {alertsData.alerts.length === 0 && (
-                    <MDTypography variant="button" color="text">
-                      No alerts yet — add one on the right.
+                )}
+                {alertsData.alerts.map((a) => (
+                  <MDBox
+                    key={a.id}
+                    display="flex"
+                    justifyContent="space-between"
+                    alignItems="center"
+                    py={1}
+                    borderBottom="1px solid"
+                    borderColor="grey.200"
+                  >
+                    <MDTypography variant="button">
+                      {a.id} — {a.company}
                     </MDTypography>
-                  )}
-                  {alertsData.alerts.map((a) => (
-                    <MDBox
-                      key={a.id}
-                      display="flex"
-                      justifyContent="space-between"
-                      alignItems="center"
-                      py={1}
-                      borderBottom="1px solid"
-                      borderColor="grey.200"
+                    <MDButton
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      onClick={() => handleDeleteAlert(a.id)}
                     >
-                      <MDTypography variant="button">
-                        {a.id} — {a.company}
-                      </MDTypography>
-                      <MDButton
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        onClick={() => handleDeleteAlert(a.id)}
-                      >
-                        Delete
-                      </MDButton>
-                    </MDBox>
-                  ))}
-
-                  <MDBox mt={3}>
-                    <MDButton component="label" variant="gradient" color="dark" fullWidth>
-                      Sync jobs from local watcher
-                      <input type="file" accept=".json" hidden onChange={handleSyncJobsFile} />
+                      Delete
                     </MDButton>
-                    <MDTypography variant="caption" color="text" display="block" mt={1}>
-                      Upload your local agastya-jobs.json to merge new finds into the live site.
-                    </MDTypography>
                   </MDBox>
+                ))}
+
+                <MDBox mt={3}>
+                  <MDButton component="label" variant="gradient" color="dark" fullWidth>
+                    Sync jobs from local watcher
+                    <input type="file" accept=".json" hidden onChange={handleSyncJobsFile} />
+                  </MDButton>
+                  <MDTypography variant="caption" color="text" display="block" mt={1}>
+                    Upload your local agastya-jobs.json to merge new finds into the live site.
+                  </MDTypography>
                 </MDBox>
-              </Card>
-            </Grid>
+              </MDBox>
+            </Card>
+          </Grid>
 
-            <Grid item xs={12} md={7}>
-              <Card>
-                <MDBox p={3} component="form" onSubmit={handleAddAlert}>
-                  <MDTypography variant="h6" mb={2}>
-                    Add an alert
+          <Grid item xs={12} md={7}>
+            <Card>
+              <MDBox p={3} component="form" onSubmit={handleAddAlert}>
+                <MDTypography variant="h6" mb={0.5}>
+                  Add an alert
+                </MDTypography>
+                {!idToken && (
+                  <MDTypography variant="caption" color="text" display="block" mb={1.5}>
+                    Anyone can fill this out, but adding it requires signing in with Google
+                    (top-right) as the site owner.
                   </MDTypography>
+                )}
 
-                  <MDBox display="flex" gap={1} mb={1}>
-                    <MDInput
-                      label="Paste a Workday careers URL to auto-fill tenant/host/site"
-                      value={pasteUrl}
-                      onChange={(e) => setPasteUrl(e.target.value)}
-                      fullWidth
-                    />
-                    <MDButton type="button" variant="outlined" color="dark" onClick={handleParseUrl}>
-                      Parse
-                    </MDButton>
-                  </MDBox>
-                  {parseNote && (
-                    <MDTypography
-                      variant="caption"
-                      color={parseNote.type === "error" ? "error" : "success"}
-                      display="block"
-                      mb={2}
-                    >
-                      {parseNote.text}
-                    </MDTypography>
-                  )}
-
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <MDInput
-                        label="Alert id (unique)"
-                        value={form.id}
-                        onChange={(e) => setForm({ ...form, id: e.target.value })}
-                        fullWidth
-                        required
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <MDInput
-                        label="Company name"
-                        value={form.company}
-                        onChange={(e) => setForm({ ...form, company: e.target.value })}
-                        fullWidth
-                        required
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <MDInput
-                        label="Workday tenant"
-                        value={form.workday_tenant}
-                        onChange={(e) => setForm({ ...form, workday_tenant: e.target.value })}
-                        fullWidth
-                        required
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <MDInput
-                        label="Workday host, e.g. wd1, wd3, wd5"
-                        value={form.workday_host}
-                        onChange={(e) => setForm({ ...form, workday_host: e.target.value })}
-                        fullWidth
-                        required
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <MDInput
-                        label="Workday site (short segment, not a full URL)"
-                        value={form.workday_site}
-                        onChange={(e) => setForm({ ...form, workday_site: e.target.value })}
-                        fullWidth
-                        required
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <MDInput
-                        label="Keywords, comma separated"
-                        value={form.keywords_any}
-                        onChange={(e) => setForm({ ...form, keywords_any: e.target.value })}
-                        fullWidth
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <MDInput
-                        label="Exclude keywords, comma separated"
-                        value={form.keywords_exclude}
-                        onChange={(e) => setForm({ ...form, keywords_exclude: e.target.value })}
-                        fullWidth
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <MDInput
-                        label="Location contains (e.g. Ireland)"
-                        value={form.location_filter}
-                        onChange={(e) => setForm({ ...form, location_filter: e.target.value })}
-                        fullWidth
-                      />
-                    </Grid>
-                  </Grid>
-
-                  <MDButton type="submit" variant="gradient" color="info" sx={{ mt: 3 }}>
-                    <Icon sx={{ mr: 0.5 }}>add</Icon>
-                    Add alert
+                <MDBox display="flex" gap={1} mb={1} mt={idToken ? 2 : 0}>
+                  <MDInput
+                    label="Paste a Workday careers URL to auto-fill tenant/host/site"
+                    value={pasteUrl}
+                    onChange={(e) => setPasteUrl(e.target.value)}
+                    fullWidth
+                  />
+                  <MDButton type="button" variant="outlined" color="dark" onClick={handleParseUrl}>
+                    Parse
                   </MDButton>
                 </MDBox>
-              </Card>
-            </Grid>
+                {parseNote && (
+                  <MDTypography
+                    variant="caption"
+                    color={parseNote.type === "error" ? "error" : "success"}
+                    display="block"
+                    mb={2}
+                  >
+                    {parseNote.text}
+                  </MDTypography>
+                )}
+
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}>
+                    <MDInput
+                      label="Alert id (unique)"
+                      value={form.id}
+                      onChange={(e) => setForm({ ...form, id: e.target.value })}
+                      fullWidth
+                      required
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <MDInput
+                      label="Company name"
+                      value={form.company}
+                      onChange={(e) => setForm({ ...form, company: e.target.value })}
+                      fullWidth
+                      required
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <MDInput
+                      label="Workday tenant"
+                      value={form.workday_tenant}
+                      onChange={(e) => setForm({ ...form, workday_tenant: e.target.value })}
+                      fullWidth
+                      required
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <MDInput
+                      label="Workday host, e.g. wd1, wd3, wd5"
+                      value={form.workday_host}
+                      onChange={(e) => setForm({ ...form, workday_host: e.target.value })}
+                      fullWidth
+                      required
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <MDInput
+                      label="Workday site (short segment, not a full URL)"
+                      value={form.workday_site}
+                      onChange={(e) => setForm({ ...form, workday_site: e.target.value })}
+                      fullWidth
+                      required
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <MDInput
+                      label="Keywords, comma separated"
+                      value={form.keywords_any}
+                      onChange={(e) => setForm({ ...form, keywords_any: e.target.value })}
+                      fullWidth
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <MDInput
+                      label="Exclude keywords, comma separated"
+                      value={form.keywords_exclude}
+                      onChange={(e) => setForm({ ...form, keywords_exclude: e.target.value })}
+                      fullWidth
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <MDInput
+                      label="Location contains (e.g. Ireland)"
+                      value={form.location_filter}
+                      onChange={(e) => setForm({ ...form, location_filter: e.target.value })}
+                      fullWidth
+                    />
+                  </Grid>
+                </Grid>
+
+                <MDButton type="submit" variant="gradient" color="info" sx={{ mt: 3 }}>
+                  <Icon sx={{ mr: 0.5 }}>add</Icon>
+                  Add alert
+                </MDButton>
+              </MDBox>
+            </Card>
           </Grid>
-        )}
+        </Grid>
 
         {status && (
           <MDTypography
