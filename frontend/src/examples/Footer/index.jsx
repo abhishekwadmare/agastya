@@ -34,8 +34,7 @@ function isInternalLink(href) {
   return href.startsWith("/");
 }
 
-function Footer({ company, links }) {
-  const { href, name } = company;
+function Footer({ links }) {
   const { size } = typography;
 
   const renderLinks = () =>
@@ -81,12 +80,6 @@ function Footer({ company, links }) {
             favorite
           </Icon>
         </MDBox>
-        by
-        <Link href={href} target="_blank" rel="noreferrer">
-          <MDTypography variant="button" fontWeight="medium">
-            &nbsp;{name}&nbsp;
-          </MDTypography>
-        </Link>
         while job hunting.
       </MDBox>
       <MDBox
@@ -114,7 +107,6 @@ function Footer({ company, links }) {
 
 // Setting default values for the props of Footer
 Footer.defaultProps = {
-  company: { href: "https://github.com/abhishekwadmare", name: "Abhishek Wadmare" },
   links: [
     { href: "/about", name: "About" },
     { href: "https://github.com/abhishekwadmare/agastya", name: "GitHub" },
@@ -124,7 +116,6 @@ Footer.defaultProps = {
 
 // Typechecking props for the Footer
 Footer.propTypes = {
-  company: PropTypes.objectOf(PropTypes.string),
   links: PropTypes.arrayOf(PropTypes.object),
 };
 
