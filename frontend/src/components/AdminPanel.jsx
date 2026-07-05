@@ -141,6 +141,25 @@ export default function AdminPanel({ alerts, onChanged }) {
     }
   }
 
+  async function handleSyncJobsFile(e) {
+    const file = e.target.files[0];
+    e.target.value = ""; // allow re-selecting the same file next time
+    if (!file) return;
+
+    setStatus(null);
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (!Array.isArray(parsed.jobs)) {
+        throw new Error("That file doesn't look like a jobs.json - missing a 'jobs' array.");
+      }
+      const { added } = await callWorker("/api/sync-jobs", idToken, { jobs: parsed.jobs });
+      setStatus({ type: "success", text: `Synced — added ${added} new job(s).` });
+      onChanged();
+    } catch (err) {
+      setStatus({ type: "error", text: err.message });
+    }
+  }
+
   return (
     <div
       style={{
@@ -223,6 +242,27 @@ export default function AdminPanel({ alerts, onChanged }) {
                 </button>
               </div>
             ))}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <label
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                background: "var(--surface-raised)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--hairline)",
+                borderRadius: 3,
+                padding: "8px 12px",
+                cursor: "pointer",
+              }}
+            >
+              Sync jobs from local watcher
+              <input type="file" accept=".json" onChange={handleSyncJobsFile} style={{ display: "none" }} />
+            </label>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-dim)" }}>
+              Upload your local agastya-jobs.json to merge new finds into the live site
+            </span>
           </div>
 
           <form onSubmit={handleAddAlert} style={{ display: "grid", gap: 8 }}>

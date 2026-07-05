@@ -142,6 +142,33 @@ async function handleDeleteAlert(payload, env) {
   return { ok: true };
 }
 
+async function handleSyncJobs(payload, env) {
+  if (!Array.isArray(payload.jobs)) {
+    throw new Error("Missing or invalid 'jobs' array");
+  }
+  if (payload.jobs.some((j) => typeof j.id !== "string" || !j.id)) {
+    throw new Error("Every job must have a non-empty string 'id'");
+  }
+
+  const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/jobs.json`, env);
+  const existingIds = new Set(content.jobs.map((j) => j.id));
+
+  const incoming = payload.jobs.filter((j) => !existingIds.has(j.id));
+  content.jobs = [...content.jobs, ...incoming].sort((a, b) =>
+    (b.first_seen || "").localeCompare(a.first_seen || "")
+  );
+  content.last_scraped = new Date().toISOString();
+
+  await githubPutFile(
+    `${DATA_PATH_PREFIX}/jobs.json`,
+    content,
+    sha,
+    `chore: sync jobs from local watcher (+${incoming.length})`,
+    env
+  );
+  return { ok: true, added: incoming.length };
+}
+
 async function handleMarkApplied(payload, env) {
   const [{ content: jobsContent }, { content: appsContent, sha: appsSha }] = await Promise.all([
     githubGetFile(`${DATA_PATH_PREFIX}/jobs.json`, env),
@@ -206,6 +233,8 @@ export default {
         result = await handleDeleteAlert(body, env);
       } else if (url.pathname === "/api/mark-applied") {
         result = await handleMarkApplied(body, env);
+      } else if (url.pathname === "/api/sync-jobs") {
+        result = await handleSyncJobs(body, env);
       } else {
         return new Response(JSON.stringify({ error: "Not found" }), {
           status: 404,
