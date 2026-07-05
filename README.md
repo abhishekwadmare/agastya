@@ -2,10 +2,11 @@
 
 A self-hosted job alert system that monitors Workday-hosted company career
 pages directly (rather than waiting for LinkedIn/Indeed syndication),
-surfaces new postings on a public dashboard, and sends Telegram
-notifications. Adding/deleting alerts on the live site requires signing
-in with a specific Google account - enforced server-side, not just in the
-browser.
+surfaces new postings on a public multi-page dashboard (Jobs / Alerts /
+Applications / About), and sends desktop + Telegram notifications. Anyone
+can view the dashboard and even fill out the add-alert form, but actually
+adding, deleting, or syncing anything requires signing in with a specific
+Google account - enforced server-side, not just in the browser.
 
 ## Architecture
 
@@ -14,11 +15,14 @@ scraper/   Python, runs on a GitHub Actions cron schedule. Polls each
            tracked company's public Workday JSON API, writes matches into
            frontend/public/data/jobs.json, commits the change.
 
-frontend/  React (Vite), deployed to GitHub Pages. Reads the JSON files
-           and displays them. Includes a "Sign in with Google" admin
-           panel - but the frontend itself never decides who's allowed
-           to write anything; it just calls the Worker and shows the
-           result.
+frontend/  React (Vite) + Material Dashboard React (MUI-based, Creative
+           Tim), deployed to GitHub Pages. Multi-page - Jobs, Alerts,
+           Applications, About - via HashRouter (no server-side routing
+           needed on static hosting). Reads the JSON files and displays
+           them. The Alerts page has "Sign in with Google" admin
+           controls - but the frontend itself never decides who's
+           allowed to write anything; it just calls the Worker and shows
+           the result.
 
 worker/    A Cloudflare Worker. Verifies the Google ID token it receives,
            checks the token's email against ALLOWED_EMAIL, and only then
@@ -86,6 +90,10 @@ export const GOOGLE_CLIENT_ID = "<paste from step 1>";
 export const WORKER_BASE_URL = "<paste your Worker URL from step 3>";
 ```
 
+Also update the two hardcoded GitHub links in
+`frontend/src/layouts/about/index.jsx` (repo and profile URLs) if
+you're forking this rather than running it as-is.
+
 Commit and push - this triggers `deploy.yml`, which builds and publishes
 to GitHub Pages.
 
@@ -103,10 +111,11 @@ scraper currently assumes `wd1` (edit `scraper/scrape.py`'s
 
 ## 7. Add your first alert
 
-Once deployed, visit your live site, click **Sign in with Google**, sign
-in as the allowed email, and use the admin panel to add and delete
-alerts directly from the browser. Changes are committed to the repo by
-the Worker within a few seconds.
+Once deployed, visit your live site's **Alerts** page. Anyone can see
+the current alerts and fill out the add-alert form, but submitting
+requires clicking **Sign in with Google** (top-right) and signing in as
+the allowed email first. Changes are committed to the repo by the
+Worker within a few seconds.
 
 ## 8. (Optional) Telegram notifications
 
@@ -148,7 +157,7 @@ to the repo.
 
 Alert rules and the initial "already seen" baseline are always fetched
 fresh from the live repo on GitHub, so this stays in sync with whatever
-you've configured in the admin panel without needing a `git pull`.
+you've configured on the Alerts page without needing a `git pull`.
 
 ```bash
 cd scraper
@@ -158,6 +167,11 @@ python local_watch.py
 ```
 
 Leave it running in a terminal; stop with Ctrl+C.
+
+To bring what the watcher finds into the live site, go to the **Alerts**
+page (signed in) and use **Sync jobs from local watcher** to upload the
+local file - it merges by job id via the Worker, so re-uploading the
+same file is always safe.
 
 ## Local development
 
