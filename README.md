@@ -8,6 +8,16 @@ can view the dashboard and even fill out the add-alert form, but actually
 adding, deleting, or syncing anything requires signing in with a specific
 Google account - enforced server-side, not just in the browser.
 
+## Screenshots
+
+| Jobs | Alerts |
+|---|---|
+| ![Jobs page](docs/screenshots/jobs.png) | ![Alerts page](docs/screenshots/alerts.png) |
+
+| Applications | About |
+|---|---|
+| ![Applications page](docs/screenshots/applications.png) | ![About page](docs/screenshots/about.png) |
+
 ## Architecture
 
 ```
