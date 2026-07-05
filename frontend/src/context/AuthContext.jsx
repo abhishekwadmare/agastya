@@ -34,8 +34,24 @@ export function AuthProvider({ children }) {
     window.google?.accounts.id.disableAutoSelect();
   }
 
+  // Shared guard for every admin write action across the app (Jobs,
+  // Companies, Alerts): if not signed in, report it via the caller's own
+  // status state and best-effort trigger Google's One Tap prompt, rather
+  // than letting the request hit the Worker and fail with a raw error.
+  function requireSignIn(setStatus) {
+    if (idToken) return true;
+    setStatus({
+      type: "error",
+      text: "Sign in with Google (top-right) to make changes - only the site owner's account is authorized.",
+    });
+    window.google?.accounts.id.prompt();
+    return false;
+  }
+
   return (
-    <AuthContext.Provider value={{ idToken, email, signOut }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ idToken, email, signOut, requireSignIn }}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 

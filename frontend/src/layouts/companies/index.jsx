@@ -16,6 +16,7 @@ import { useAuth } from "context/AuthContext.jsx";
 import { useData } from "context/DataContext.jsx";
 import { callWorker } from "lib/callWorker.js";
 import { parseWorkdayUrl } from "lib/parseWorkdayUrl.js";
+import StatusSnackbar from "components/StatusSnackbar.jsx";
 
 const emptyCompanyForm = {
   company: "",
@@ -25,7 +26,7 @@ const emptyCompanyForm = {
 };
 
 export default function Companies() {
-  const { idToken } = useAuth();
+  const { idToken, requireSignIn } = useAuth();
   const { companiesData, reload } = useData();
 
   const [status, setStatus] = useState(null);
@@ -54,20 +55,10 @@ export default function Companies() {
     });
   }
 
-  function requireSignIn() {
-    if (idToken) return true;
-    setStatus({
-      type: "error",
-      text: "Sign in with Google (top-right) to make changes - only the site owner's account is authorized.",
-    });
-    window.google?.accounts.id.prompt();
-    return false;
-  }
-
   async function handleAddCompany(e) {
     e.preventDefault();
     setStatus(null);
-    if (!requireSignIn()) return;
+    if (!requireSignIn(setStatus)) return;
     try {
       const { company } = await callWorker("/api/add-company", idToken, {
         company: {
@@ -87,7 +78,7 @@ export default function Companies() {
 
   async function handleDeleteCompany(id) {
     setStatus(null);
-    if (!requireSignIn()) return;
+    if (!requireSignIn(setStatus)) return;
     try {
       await callWorker("/api/delete-company", idToken, { id });
       setStatus({ type: "success", text: `Deleted '${id}'.` });
@@ -131,6 +122,7 @@ export default function Companies() {
                       color="error"
                       size="small"
                       onClick={() => handleDeleteCompany(c.id)}
+                      sx={{ opacity: idToken ? 1 : 0.6 }}
                     >
                       Delete
                     </MDButton>
@@ -215,7 +207,12 @@ export default function Companies() {
                   </Grid>
                 </Grid>
 
-                <MDButton type="submit" variant="gradient" color="info" sx={{ mt: 3 }}>
+                <MDButton
+                  type="submit"
+                  variant="gradient"
+                  color="info"
+                  sx={{ mt: 3, opacity: idToken ? 1 : 0.6 }}
+                >
                   <Icon sx={{ mr: 0.5 }}>add</Icon>
                   Add company
                 </MDButton>
@@ -223,18 +220,8 @@ export default function Companies() {
             </Card>
           </Grid>
         </Grid>
-
-        {status && (
-          <MDTypography
-            variant="button"
-            color={status.type === "error" ? "error" : "success"}
-            display="block"
-            mt={2}
-          >
-            {status.text}
-          </MDTypography>
-        )}
       </MDBox>
+      <StatusSnackbar status={status} onClose={() => setStatus(null)} />
       <Footer />
     </DashboardLayout>
   );

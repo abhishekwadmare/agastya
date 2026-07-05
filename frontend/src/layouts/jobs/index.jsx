@@ -2,16 +2,21 @@ import { useMemo, useState } from "react";
 import Grid from "@mui/material/Grid";
 import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
+import Icon from "@mui/material/Icon";
 
 import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
+import MDButton from "components/MDButton";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import Footer from "examples/Footer";
 import ComplexStatisticsCard from "examples/Cards/StatisticsCards/ComplexStatisticsCard";
 
+import { useAuth } from "context/AuthContext.jsx";
 import { useData } from "context/DataContext.jsx";
+import { callWorker } from "lib/callWorker.js";
+import StatusSnackbar from "components/StatusSnackbar.jsx";
 import JobRow from "layouts/jobs/components/JobRow.jsx";
 
 const LOCAL_APPLIED_KEY = "agastya_locally_marked_applied";
@@ -35,9 +40,12 @@ function timeAgo(isoString) {
 }
 
 export default function Jobs() {
+  const { idToken, requireSignIn } = useAuth();
   const { jobsData, companiesData, applicationsData, loading } = useData();
   const [locallyApplied, setLocallyApplied] = useState(readLocalApplied());
   const [activeCompany, setActiveCompany] = useState("all");
+  const [fetching, setFetching] = useState(false);
+  const [fetchStatus, setFetchStatus] = useState(null);
 
   const appliedIds = useMemo(() => {
     const fromCli = new Set(applicationsData.applications.map((a) => a.job_id));
@@ -59,6 +67,23 @@ export default function Jobs() {
     const updated = Array.from(new Set([...locallyApplied, job.id]));
     setLocallyApplied(updated);
     localStorage.setItem(LOCAL_APPLIED_KEY, JSON.stringify(updated));
+  }
+
+  async function handleFetchJobs() {
+    setFetchStatus(null);
+    if (!requireSignIn(setFetchStatus)) return;
+    setFetching(true);
+    try {
+      await callWorker("/api/fetch-jobs", idToken, {});
+      setFetchStatus({
+        type: "success",
+        text: "Scraper triggered - check back in a minute or two, then refresh.",
+      });
+    } catch (err) {
+      setFetchStatus({ type: "error", text: err.message });
+    } finally {
+      setFetching(false);
+    }
   }
 
   return (
@@ -95,7 +120,15 @@ export default function Jobs() {
           </Grid>
         </Grid>
 
-        <MDBox mt={3} mb={2}>
+        <MDBox
+          mt={3}
+          mb={2}
+          display="flex"
+          justifyContent="space-between"
+          alignItems="center"
+          flexWrap="wrap"
+          gap={2}
+        >
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             {companies.map((c) => (
               <Chip
@@ -107,6 +140,18 @@ export default function Jobs() {
               />
             ))}
           </Stack>
+
+          <MDButton
+            variant="gradient"
+            color="dark"
+            size="small"
+            onClick={handleFetchJobs}
+            disabled={fetching}
+            sx={{ opacity: idToken ? 1 : 0.6 }}
+          >
+            <Icon sx={{ mr: 0.5 }}>{fetching ? "hourglass_top" : "sync"}</Icon>
+            {fetching ? "Fetching…" : "Fetch jobs now"}
+          </MDButton>
         </MDBox>
 
         {loading && (
@@ -136,6 +181,7 @@ export default function Jobs() {
           ))}
         </MDBox>
       </MDBox>
+      <StatusSnackbar status={fetchStatus} onClose={() => setFetchStatus(null)} />
       <Footer />
     </DashboardLayout>
   );

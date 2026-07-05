@@ -16,6 +16,7 @@ import { useAuth } from "context/AuthContext.jsx";
 import { useData } from "context/DataContext.jsx";
 import { callWorker } from "lib/callWorker.js";
 import { parseWorkdayUrl } from "lib/parseWorkdayUrl.js";
+import StatusSnackbar from "components/StatusSnackbar.jsx";
 
 const emptyAlertForm = {
   id: "",
@@ -29,7 +30,7 @@ const emptyAlertForm = {
 };
 
 export default function Alerts() {
-  const { idToken } = useAuth();
+  const { idToken, requireSignIn } = useAuth();
   const { alertsData, reload } = useData();
 
   const [status, setStatus] = useState(null);
@@ -61,20 +62,10 @@ export default function Alerts() {
     });
   }
 
-  function requireSignIn() {
-    if (idToken) return true;
-    setStatus({
-      type: "error",
-      text: "Sign in with Google (top-right) to make changes - only the site owner's account is authorized.",
-    });
-    window.google?.accounts.id.prompt();
-    return false;
-  }
-
   async function handleAddAlert(e) {
     e.preventDefault();
     setStatus(null);
-    if (!requireSignIn()) return;
+    if (!requireSignIn(setStatus)) return;
     try {
       await callWorker("/api/add-alert", idToken, {
         alert: {
@@ -98,7 +89,7 @@ export default function Alerts() {
 
   async function handleDeleteAlert(id) {
     setStatus(null);
-    if (!requireSignIn()) return;
+    if (!requireSignIn(setStatus)) return;
     try {
       await callWorker("/api/delete-alert", idToken, { id });
       setStatus({ type: "success", text: `Deleted alert '${id}'.` });
@@ -114,7 +105,7 @@ export default function Alerts() {
     if (!file) return;
 
     setStatus(null);
-    if (!requireSignIn()) return;
+    if (!requireSignIn(setStatus)) return;
     try {
       const parsed = JSON.parse(await file.text());
       if (!Array.isArray(parsed.jobs)) {
@@ -162,6 +153,7 @@ export default function Alerts() {
                       color="error"
                       size="small"
                       onClick={() => handleDeleteAlert(a.id)}
+                      sx={{ opacity: idToken ? 1 : 0.6 }}
                     >
                       Delete
                     </MDButton>
@@ -169,7 +161,13 @@ export default function Alerts() {
                 ))}
 
                 <MDBox mt={3}>
-                  <MDButton component="label" variant="gradient" color="dark" fullWidth>
+                  <MDButton
+                    component="label"
+                    variant="gradient"
+                    color="dark"
+                    fullWidth
+                    sx={{ opacity: idToken ? 1 : 0.6 }}
+                  >
                     Sync jobs from local watcher
                     <input type="file" accept=".json" hidden onChange={handleSyncJobsFile} />
                   </MDButton>
@@ -288,7 +286,12 @@ export default function Alerts() {
                   </Grid>
                 </Grid>
 
-                <MDButton type="submit" variant="gradient" color="info" sx={{ mt: 3 }}>
+                <MDButton
+                  type="submit"
+                  variant="gradient"
+                  color="info"
+                  sx={{ mt: 3, opacity: idToken ? 1 : 0.6 }}
+                >
                   <Icon sx={{ mr: 0.5 }}>add</Icon>
                   Add alert
                 </MDButton>
@@ -296,18 +299,8 @@ export default function Alerts() {
             </Card>
           </Grid>
         </Grid>
-
-        {status && (
-          <MDTypography
-            variant="button"
-            color={status.type === "error" ? "error" : "success"}
-            display="block"
-            mt={2}
-          >
-            {status.text}
-          </MDTypography>
-        )}
       </MDBox>
+      <StatusSnackbar status={status} onClose={() => setStatus(null)} />
       <Footer />
     </DashboardLayout>
   );

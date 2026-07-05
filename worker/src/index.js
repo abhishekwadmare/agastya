@@ -3,7 +3,9 @@
  *
  * Verifies a Google ID token server-side, checks it belongs to the one
  * allowed email address, and - only if that passes - writes changes to
- * data files in the GitHub repo via the GitHub Contents API.
+ * data files in the GitHub repo via the GitHub Contents API, or (for
+ * /api/fetch-jobs) triggers the scrape.yml GitHub Actions workflow via
+ * the Actions API.
  *
  * The GitHub token and allowed email live in Worker secrets/vars, never
  * in the frontend bundle, so nothing sensitive is ever shipped to the
@@ -11,7 +13,9 @@
  *
  * Required Worker secrets (set via `wrangler secret put`):
  *   GITHUB_TOKEN     - a fine-grained PAT scoped to Contents: read/write
- *                       on this one repo only
+ *                       AND Actions: read/write (the latter is needed
+ *                       for /api/fetch-jobs to dispatch scrape.yml) on
+ *                       this one repo only
  *
  * Required Worker vars (in wrangler.toml or the dashboard):
  *   ALLOWED_EMAIL     - e.g. abhishek.wadmare@gmail.com
@@ -195,6 +199,25 @@ async function handleDeleteCompany(payload, env) {
   return { ok: true };
 }
 
+async function handleFetchJobs(payload, env) {
+  const url = `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/actions/workflows/scrape.yml/dispatches`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      "User-Agent": "agastya-worker",
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ ref: env.GITHUB_BRANCH }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`GitHub workflow dispatch failed: ${resp.status} ${text}`);
+  }
+  return { ok: true };
+}
+
 async function handleSyncJobs(payload, env) {
   if (!Array.isArray(payload.jobs)) {
     throw new Error("Missing or invalid 'jobs' array");
@@ -288,6 +311,8 @@ export default {
         result = await handleAddCompany(body, env);
       } else if (url.pathname === "/api/delete-company") {
         result = await handleDeleteCompany(body, env);
+      } else if (url.pathname === "/api/fetch-jobs") {
+        result = await handleFetchJobs(body, env);
       } else if (url.pathname === "/api/mark-applied") {
         result = await handleMarkApplied(body, env);
       } else if (url.pathname === "/api/sync-jobs") {
