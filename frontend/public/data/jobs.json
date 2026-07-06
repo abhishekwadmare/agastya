@@ -1,6 +1,76 @@
 {
-  "last_scraped": "2026-07-05T21:39:19.046738+00:00",
+  "last_scraped": "2026-07-06T22:32:11.114286+00:00",
   "jobs": [
+    {
+      "id": "redhat:/job/Sao-Paulo/Junior-Consultant_R-057635",
+      "company_id": "redhat",
+      "company": "Red Hat",
+      "title": "Junior Consultant",
+      "location": "Sao Paulo",
+      "posted_on": "Posted Today",
+      "apply_url": "https://redhat.wd5.myworkdayjobs.com/jobs/job/Sao-Paulo/Junior-Consultant_R-057635",
+      "first_seen": "2026-07-06T22:32:09.113011+00:00"
+    },
+    {
+      "id": "redhat:/job/Pune/Software-Engineer_R-057018-1",
+      "company_id": "redhat",
+      "company": "Red Hat",
+      "title": "Software Engineer",
+      "location": "Pune",
+      "posted_on": "Posted Today",
+      "apply_url": "https://redhat.wd5.myworkdayjobs.com/jobs/job/Pune/Software-Engineer_R-057018-1",
+      "first_seen": "2026-07-06T22:32:09.113033+00:00"
+    },
+    {
+      "id": "redhat:/job/Raanana/Manager---Solution-Architecture_R-056799-2",
+      "company_id": "redhat",
+      "company": "Red Hat",
+      "title": "Manager - Solution Architecture",
+      "location": "Raanana",
+      "posted_on": "Posted Today",
+      "apply_url": "https://redhat.wd5.myworkdayjobs.com/jobs/job/Raanana/Manager---Solution-Architecture_R-056799-2",
+      "first_seen": "2026-07-06T22:32:09.113039+00:00"
+    },
+    {
+      "id": "redhat:/job/Pune---Tower-6/Senior-Software-Maintenance-Engineer_R-057388-1",
+      "company_id": "redhat",
+      "company": "Red Hat",
+      "title": "Senior Software Maintenance Engineer-Linux Kernel, C programming, GDB",
+      "location": "Pune - Tower 6",
+      "posted_on": "Posted Today",
+      "apply_url": "https://redhat.wd5.myworkdayjobs.com/jobs/job/Pune---Tower-6/Senior-Software-Maintenance-Engineer_R-057388-1",
+      "first_seen": "2026-07-06T22:32:09.113043+00:00"
+    },
+    {
+      "id": "redhat:/job/Pune/Senior-Software-Engineer--Cloud-Infrastructure--Kubernetes--Golang-Python_R-057038-1",
+      "company_id": "redhat",
+      "company": "Red Hat",
+      "title": "Senior Software Engineer- Cloud Infrastructure, Kubernetes, Golang/Python",
+      "location": "Pune",
+      "posted_on": "Posted Today",
+      "apply_url": "https://redhat.wd5.myworkdayjobs.com/jobs/job/Pune/Senior-Software-Engineer--Cloud-Infrastructure--Kubernetes--Golang-Python_R-057038-1",
+      "first_seen": "2026-07-06T22:32:09.113046+00:00"
+    },
+    {
+      "id": "redhat:/job/Remote-US-CA/Software-Sales-Specialist---Red-Hat-Hybrid-Cloud-Platforms_R-058040-1",
+      "company_id": "redhat",
+      "company": "Red Hat",
+      "title": "Software Sales Specialist - Red Hat Hybrid Cloud Platforms",
+      "location": "Remote US CA",
+      "posted_on": "Posted Today",
+      "apply_url": "https://redhat.wd5.myworkdayjobs.com/jobs/job/Remote-US-CA/Software-Sales-Specialist---Red-Hat-Hybrid-Cloud-Platforms_R-058040-1",
+      "first_seen": "2026-07-06T22:32:09.113049+00:00"
+    },
+    {
+      "id": "redhat:/job/Remote-Brazil/Project-Manager---Technical_R-058319-1",
+      "company_id": "redhat",
+      "company": "Red Hat",
+      "title": "Project Manager - Technical",
+      "location": "Remote Brazil",
+      "posted_on": "Posted Today",
+      "apply_url": "https://redhat.wd5.myworkdayjobs.com/jobs/job/Remote-Brazil/Project-Manager---Technical_R-058319-1",
+      "first_seen": "2026-07-06T22:32:09.113052+00:00"
+    },
     {
       "id": "redhat:/job/Remote-Chile/Consulting-Services-Account-Specialist_R-057763-1",
       "company_id": "redhat",
