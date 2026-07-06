@@ -13,8 +13,17 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     steps:
+      # Checkout with the admin PAT (not the default token) so this
+      # workflow's later `git push` is authenticated as the repo admin,
+      # not as github-actions[bot] - main has branch protection requiring
+      # a PR, and only the repo-admin identity is on the bypass list.
+      # Same PAT already used by the Cloudflare Worker, stored here too
+      # as a separate GitHub Actions secret (Settings > Secrets and
+      # variables > Actions > ADMIN_PAT).
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ADMIN_PAT }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
