@@ -168,6 +168,60 @@ checking with Abhi - it's intentionally kept for that later feature.
   situation. Don't add LinkedIn scraping later without flagging this
   tension explicitly.
 
+## Git workflow (adopted 2026-07-06)
+
+Every change up to this point was a direct push to `main`. Going
+forward, this repo follows **GitHub Flow** (the actual name of this
+practice - distinct from the heavier, mostly-legacy "Git Flow" with
+`develop`/`release`/`hotfix` branches):
+
+1. Branch off `main` per change, open a PR (draft if still WIP), let CI
+   run, self-review the diff, squash-merge, delete the branch.
+2. **Branch naming**: `<type>/<issue-number>-<short-slug>` when there's
+   a backing issue (`fix/1-sign-in-persist`), or `<type>/<short-slug>`
+   when there isn't (`chore/bump-vite`). One logical change per
+   branch/PR, not one PR per commit.
+3. Commit prefixes already in use (`feat:`/`fix:`/`docs:`/`chore:`) are
+   the **Conventional Commits** convention.
+4. Every PR uses `.github/PULL_REQUEST_TEMPLATE.md` (What & why /
+   related issue / screenshots if UI changed / how to verify) - kept
+   short on purpose so it actually gets filled in.
+5. `.github/workflows/ci.yml` runs `npm run build` on every PR against
+   `main` - this is what branch protection's "require status checks"
+   points at.
+
+**The backlog is just "open Issues"** - GitHub has no separate backlog
+object. When a feature idea comes up in conversation and we agree it's
+worth doing, it gets filed as an Issue right then (even loosely
+detailed) rather than staying only in chat history - that issue *is*
+the backlog entry, refined via comments later if needed. Big
+features/real bugs get an Issue first, then a branch named after it,
+then a PR that references it (`Fixes #N`) so it auto-closes on merge -
+the pattern used for #1/#2. Small stuff (typo, dependency bump, minor
+copy change) skips the Issue - just branch + PR directly.
+
+Branch protection on `main` is enabled (require PR before merge,
+require the CI check, no bypass even for the admin/owner) - so this
+isn't optional going forward, including for trivial fixes. Kept the
+overhead cheap on purpose (a one-line fix is still just a 2-minute
+branch+PR) rather than carving out exceptions, since exceptions are how
+direct-push accidents happen.
+
+One real limitation: Claude Code can create and push branches via git
+directly, but can't open the actual Pull Request without `gh` CLI auth
+or a GitHub API token (same blocker hit when creating Issues #1/#2) -
+Abhi opens the PR himself via the link GitHub shows after a branch is
+pushed, or sets up `gh auth login` once to unblock full automation.
+
+Know these exist for interview purposes, even though they're not
+adopted here (single-maintainer repo doesn't need them yet): **GitHub
+Projects** (a Kanban board layered on top of Issues), **CODEOWNERS**
+files (auto-request specific reviewers per path), **Dependabot**
+(automated dependency-update PRs), **semantic-release** (auto-versioning
+from Conventional Commits), **GitHub Discussions** (for open-ended
+"should we even do this" conversations, one level before an Issue -
+mainly pays off with multiple contributors).
+
 ## Current state / what's been tested
 
 - Repo is live and pushed: github.com/abhishekwadmare/agastya
