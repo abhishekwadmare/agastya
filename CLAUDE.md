@@ -201,11 +201,25 @@ the pattern used for #1/#2. Small stuff (typo, dependency bump, minor
 copy change) skips the Issue - just branch + PR directly.
 
 Branch protection on `main` is enabled (require PR before merge,
-require the CI check, no bypass even for the admin/owner) - so this
-isn't optional going forward, including for trivial fixes. Kept the
-overhead cheap on purpose (a one-line fix is still just a 2-minute
-branch+PR) rather than carving out exceptions, since exceptions are how
-direct-push accidents happen.
+require the CI check) with a **bypass list scoped to "Repository
+admin" only** - this is deliberate, not a hole in the rule. The app's
+own automated data writes commit directly to `main` outside any PR:
+`scrape.yml`'s job-listing commit and every Worker admin-panel write
+(add/delete-alert, add/delete-company, mark-applied, sync-jobs). A
+"no bypass for anyone" rule would have blocked all of those identically
+to a human's direct push - GitHub can't tell "routine automated data
+write" apart from "code change that skipped review" on its own. The
+Worker's GitHub token and `admin/admin_cli.py`'s local git access
+already authenticate as the repo admin, so the bypass list covers them
+for free; `scrape.yml` was updated to check out with a stored PAT
+(`secrets.ADMIN_PAT`, a GitHub Actions repo secret - separate store
+from the same-value Cloudflare Worker secret) instead of its default
+token, specifically so its push is also attributed to an admin-bypass-
+eligible identity rather than `github-actions[bot]`. Branch protection
+here enforces discipline for *code* changes; it is not, and can't be, a
+hard technical lock on every write to `main` given this architecture -
+don't try to tighten it further without re-checking this reasoning
+first.
 
 One real limitation: Claude Code can create and push branches via git
 directly, but can't open the actual Pull Request without `gh` CLI auth
