@@ -3,6 +3,7 @@ import Icon from "@mui/material/Icon";
 import Jobs from "layouts/jobs";
 import Companies from "layouts/companies";
 import Alerts from "layouts/alerts";
+import Admins from "layouts/admins";
 import Applications from "layouts/applications";
 import About from "layouts/about";
 
@@ -30,6 +31,14 @@ const routes = [
     icon: <Icon fontSize="small">notifications_active</Icon>,
     route: "/alerts",
     component: <Alerts />,
+  },
+  {
+    type: "collapse",
+    name: "Admins",
+    key: "admins",
+    icon: <Icon fontSize="small">admin_panel_settings</Icon>,
+    route: "/admins",
+    component: <Admins />,
   },
   {
     type: "collapse",

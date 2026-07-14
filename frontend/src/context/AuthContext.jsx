@@ -149,7 +149,7 @@ export function AuthProvider({ children }) {
     if (idToken && isTokenValid(idToken)) return true;
     setStatus({
       type: "error",
-      text: "Sign in with Google (top-right) to make changes - only the site owner's account is authorized.",
+      text: "Sign in with Google (top-right) to make changes.",
     });
     window.google?.accounts?.id?.prompt();
     return false;

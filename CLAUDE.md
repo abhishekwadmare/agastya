@@ -44,20 +44,33 @@ frontend/  React + Vite, deployed to GitHub Pages via GitHub Actions.
            based) - see "UI framework" below for why, and "UI template
            reference" for the exact source URL to reuse when adding new
            pages. Multi-page via HashRouter (Jobs / Companies / Alerts /
-           Applications / About), not a single page anymore. Reads the
-           JSON files in public/data/. The Companies and Alerts pages
-           have Google Sign-In admin controls, but the frontend NEVER
-           decides who's authorized - it just calls the Worker and shows
-           the result.
+           Admins / Applications / About), not a single page anymore.
+           Reads the JSON files in public/data/. The Companies, Alerts,
+           and Admins pages have Google Sign-In admin controls, but the
+           frontend NEVER decides who's authorized - it just calls the
+           Worker and shows the result. Any role-based hide/disable in
+           the UI (e.g. `getCurrentRole` in `frontend/src/lib/roles.js`)
+           is cosmetic only, purely for UX; the Worker enforces the real
+           gate regardless of what the UI shows.
 
 worker/    Cloudflare Worker. This is the actual security boundary.
            Verifies the Google ID token server-side (checks it against
-           Google's tokeninfo endpoint, confirms aud/email/email_verified/
-           exp), and only if the email matches ALLOWED_EMAIL does it
-           write to the GitHub repo via the Contents API, using a
-           GitHub token stored as a Worker secret - or, for
-           /api/fetch-jobs, dispatches scrape.yml via the GitHub Actions
-           API using that same token. That token needs BOTH Contents:
+           Google's tokeninfo endpoint, confirms aud/email_verified/exp),
+           then resolves the token's email to a role: the permanent
+           bootstrap owner (env.ALLOWED_EMAIL, always role "admin" - can
+           never be locked out even if admins.json is missing or
+           corrupted) or an entry in frontend/public/data/admins.json
+           ("admin" or "user"). Only if the resolved role meets the
+           requested route's required role (see the ROUTES table in
+           worker/src/index.js) does it write to the GitHub repo via the
+           Contents API, using a GitHub token stored as a Worker secret -
+           or, for /api/fetch-jobs, dispatches scrape.yml via the GitHub
+           Actions API using that same token. "admin" can do everything,
+           including managing the admin/user list itself
+           (/api/add-admin, /api/remove-admin); "user" can only manage
+           alerts and applications (add-alert, delete-alert,
+           mark-applied) - companies, fetch-jobs, and sync-jobs all
+           require "admin". That GitHub token needs BOTH Contents:
            read/write AND Actions: read/write scopes now; it originally
            only had Contents, so fetch-jobs will 403 until the scope is
            widened (this bit Abhi once already - check before assuming
@@ -79,10 +92,13 @@ client-side secrets when adding features - route writes through the
 Worker.
 
 **Single source of truth for data:** all JSON data (`jobs.json`,
-`alerts.json`, `companies.json`, `applications.json`) lives in ONE
-place: `frontend/public/data/`. We deliberately removed an earlier
-separate `data/` folder and its sync step - don't reintroduce a second
-copy.
+`alerts.json`, `companies.json`, `applications.json`, `admins.json`)
+lives in ONE place: `frontend/public/data/`. We deliberately removed an
+earlier separate `data/` folder and its sync step - don't reintroduce a
+second copy. `admins.json` deliberately does NOT duplicate the bootstrap
+owner (`ALLOWED_EMAIL` in `worker/wrangler.toml`) - that stays the sole
+source of truth for the bootstrap account specifically, to avoid a
+two-sources-of-truth conflict if they ever disagreed.
 
 **Companies vs. Alerts:** `companies.json` (which Workday career pages
 to poll - the scraper's actual data source now) is deliberately
@@ -126,9 +142,25 @@ checking with Abhi - it's intentionally kept for that later feature.
   decided the code itself isn't the moat - understood that MIT doesn't
   prevent him from licensing *future* proprietary work differently,
   since he owns the copyright either way.
-- **Auth: Google Sign-In, restricted to abhishek.wadmare@gmail.com**,
-  verified server-side in the Worker. Not a password. This was an
-  explicit upgrade from an earlier local-token-only design.
+- **Auth: Google Sign-In**, verified server-side in the Worker. Not a
+  password. This was an explicit upgrade from an earlier
+  local-token-only design.
+- **Role-based admin: two roles, "admin" and "user", not per-resource
+  permissions.** "admin" = full access, including managing the
+  admin/user list itself; "user" = alerts + applications only, read-only
+  elsewhere. Abhi (`abhishek.wadmare@gmail.com`, `ALLOWED_EMAIL` in
+  `worker/wrangler.toml`) is a permanent bootstrap admin outside
+  `admins.json`, specifically so he can never be locked out even if
+  `admins.json` is missing, corrupted, or emptied - this was a
+  deliberate resilience decision, not an oversight; don't "clean it up"
+  by moving him into `admins.json` too. Additional admins/users are
+  managed via the Admins page (`frontend/src/layouts/admins/`), which
+  writes to `admins.json` through the same GitHub Contents API pattern
+  as companies/alerts (chosen over a Cloudflare KV/D1 binding to keep
+  the single-source-of-truth-in-`frontend/public/data/` rule intact).
+  The separate local `admin/admin_cli.py` (shared-password auth, no
+  email identity) was deliberately left untouched - it's a distinct
+  offline mechanism, not part of the role system.
 - **UI framework: Material Dashboard React (Creative Tim), fully
   adopted** - MUI v5 component library, theme system, and layout shell
   (Sidenav/Navbar/DashboardLayout), ported onto Vite (the template
@@ -152,7 +184,7 @@ checking with Abhi - it's intentionally kept for that later feature.
   (Creative Tim, MIT licensed). When adding a new page or UI element,
   check that repo first for an existing component/pattern to port
   rather than hand-rolling new styling - that's how every page so far
-  (Jobs, Companies, Alerts, Applications, About) stays visually
+  (Jobs, Companies, Alerts, Admins, Applications, About) stays visually
   consistent. Ported subset lives under `frontend/src/{assets/theme,
   assets/theme-dark, components/MD*, examples/*}` - copy from the
   template's matching path when you need something not already ported
@@ -270,8 +302,9 @@ mainly pays off with multiple contributors).
 
 - Auto-parse the Workday URL on paste instead of requiring a button
   click (was requested, not yet implemented)
-- No "edit" for alerts or companies - only add/delete. Editing
-  currently means delete + re-add.
+- No "edit" for alerts, companies, or admins/users - only add/delete.
+  Editing (including changing someone's role) currently means
+  delete + re-add.
 - Telegram notifications are wired but need TELEGRAM_BOT_TOKEN /
   TELEGRAM_CHAT_ID secrets set in GitHub Actions to actually fire -
   check whether Abhi has done this yet before assuming it's live

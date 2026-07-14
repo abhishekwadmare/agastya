@@ -4,6 +4,10 @@ compatibility_date = "2024-09-01"
 
 # Non-secret configuration - safe to commit, these are not credentials.
 [vars]
+# Permanent bootstrap admin - always resolves to role "admin" regardless
+# of frontend/public/data/admins.json, so this account can never be
+# locked out even if admins.json is missing, corrupted, or emptied.
+# Additional admins/users are managed via the Admins page (admins.json).
 ALLOWED_EMAIL = "abhishek.wadmare@gmail.com"
 GOOGLE_CLIENT_ID = "841466924804-a9qu4pn9i35dbk5qlji3klcu2omu02s4.apps.googleusercontent.com"
 GITHUB_OWNER = "abhishekwadmare"

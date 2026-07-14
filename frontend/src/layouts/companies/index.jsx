@@ -16,6 +16,8 @@ import { useAuth } from "context/AuthContext.jsx";
 import { useData } from "context/DataContext.jsx";
 import { callWorker } from "lib/callWorker.js";
 import { parseWorkdayUrl } from "lib/parseWorkdayUrl.js";
+import { getCurrentRole } from "lib/roles.js";
+import { BOOTSTRAP_ADMIN_EMAIL } from "../../config.js";
 import StatusSnackbar from "components/StatusSnackbar.jsx";
 
 const emptyCompanyForm = {
@@ -26,8 +28,9 @@ const emptyCompanyForm = {
 };
 
 export default function Companies() {
-  const { idToken, requireSignIn } = useAuth();
-  const { companiesData, reload } = useData();
+  const { idToken, email, requireSignIn } = useAuth();
+  const { companiesData, adminsData, reload } = useData();
+  const canManage = getCurrentRole(email, adminsData, BOOTSTRAP_ADMIN_EMAIL) === "admin";
 
   const [status, setStatus] = useState(null);
   const [form, setForm] = useState(emptyCompanyForm);
@@ -122,7 +125,7 @@ export default function Companies() {
                       color="error"
                       size="small"
                       onClick={() => handleDeleteCompany(c.id)}
-                      sx={{ opacity: idToken ? 1 : 0.6 }}
+                      sx={{ opacity: canManage ? 1 : 0.6 }}
                     >
                       Delete
                     </MDButton>
@@ -138,15 +141,15 @@ export default function Companies() {
                 <MDTypography variant="h6" mb={0.5}>
                   Add a company
                 </MDTypography>
-                {!idToken && (
+                {!canManage && (
                   <MDTypography variant="caption" color="text" display="block" mb={1.5}>
                     Anyone can fill this out, but adding it requires signing in with Google
-                    (top-right) as the site owner. All of this company&apos;s postings will show
-                    up on the Jobs page, unfiltered.
+                    (top-right) as an admin. All of this company&apos;s postings will show up on
+                    the Jobs page, unfiltered.
                   </MDTypography>
                 )}
 
-                <MDBox display="flex" gap={1} mb={1} mt={idToken ? 2 : 0}>
+                <MDBox display="flex" gap={1} mb={1} mt={canManage ? 2 : 0}>
                   <MDInput
                     label="Paste a Workday careers URL to auto-fill tenant/host/site"
                     value={pasteUrl}
@@ -211,7 +214,7 @@ export default function Companies() {
                   type="submit"
                   variant="gradient"
                   color="info"
-                  sx={{ mt: 3, opacity: idToken ? 1 : 0.6 }}
+                  sx={{ mt: 3, opacity: canManage ? 1 : 0.6 }}
                 >
                   <Icon sx={{ mr: 0.5 }}>add</Icon>
                   Add company

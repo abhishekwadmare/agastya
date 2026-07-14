@@ -3,11 +3,13 @@
 A self-hosted job alert system that monitors Workday-hosted company career
 pages directly (rather than waiting for LinkedIn/Indeed syndication),
 surfaces new postings on a public multi-page dashboard (Jobs / Companies /
-Alerts / Applications / About), and sends desktop + Telegram notifications.
+Alerts / Admins / Applications / About), and sends desktop + Telegram
+notifications.
 Anyone can view the dashboard and even fill out the add-company/add-alert
 forms, but actually adding, deleting, syncing, or triggering a scrape
-requires signing in with a specific Google account - enforced server-side,
-not just in the browser.
+requires signing in with Google as an admin or user - enforced
+server-side, not just in the browser. A built-in **Admins** page lets the
+owner grant others limited (user) or full (admin) access.
 
 ## Screenshots
 
@@ -39,19 +41,24 @@ scraper/   Python. Polls every company in companies.json's public
 
 frontend/  React (Vite) + Material Dashboard React (MUI-based, Creative
            Tim), deployed to GitHub Pages. Multi-page - Jobs, Companies,
-           Alerts, Applications, About - via HashRouter (no server-side
-           routing needed on static hosting). Reads the JSON files and
-           displays them. The Companies and Alerts pages have "Sign in
-           with Google" admin controls - but the frontend itself never
-           decides who's allowed to write anything; it just calls the
-           Worker and shows the result.
+           Alerts, Admins, Applications, About - via HashRouter (no
+           server-side routing needed on static hosting). Reads the JSON
+           files and displays them. The Companies, Alerts, and Admins
+           pages have "Sign in with Google" admin controls - but the
+           frontend itself never decides who's allowed to write
+           anything; it just calls the Worker and shows the result
+           (role-based UI hiding is cosmetic only).
 
 worker/    A Cloudflare Worker. Verifies the Google ID token it receives,
-           checks the token's email against ALLOWED_EMAIL, and only then
-           writes to the GitHub repo using a GitHub token stored as a
-           Worker secret (or, for "Fetch jobs now", dispatches the
-           scraper workflow via the GitHub Actions API). This is the
-           actual security boundary.
+           resolves the token's email to a role - either the permanent
+           bootstrap owner (ALLOWED_EMAIL, always role admin) or an entry
+           in admins.json ("admin" or "user") - and only if that role is
+           sufficient for the requested route does it write to the
+           GitHub repo using a GitHub token stored as a Worker secret (or,
+           for "Fetch jobs now", dispatch the scraper workflow via the
+           GitHub Actions API). This is the actual security boundary.
+           "admin" can do everything, including managing the admin/user
+           list; "user" can manage alerts and applications only.
 
 admin/     A local-only CLI, kept as an offline fallback. Uses a hashed
            password in a git-ignored token.txt. Useful if you want to
@@ -111,7 +118,9 @@ npx wrangler login
 ```
 
 Edit `worker/wrangler.toml`:
-- `ALLOWED_EMAIL` - already set to abhishek.wadmare@gmail.com
+- `ALLOWED_EMAIL` - the permanent bootstrap admin, e.g. your own email.
+  This account is always role `admin`, even if `admins.json` is missing
+  or empty, so you can't lock yourself out.
 - `GOOGLE_CLIENT_ID` - paste the client ID from step 1
 - `GITHUB_OWNER` - your GitHub username
 - `GITHUB_REPO` - your repo name
@@ -161,10 +170,11 @@ automatically, so you shouldn't need to edit code for this.
 Once deployed, visit your live site's **Companies** page. Anyone can see
 the watched companies and fill out the add-company form, but submitting
 requires clicking **Sign in with Google** (top-right) and signing in as
-the allowed email first. Once added, every posting from that company
-shows up on the Jobs page - unfiltered, no keyword/location matching
-yet (that's a deferred per-viewer feature; the **Alerts** page still
-works if you want to use it, it's just not wired into the scraper).
+an admin (companies require the `admin` role, not just `user`). Once
+added, every posting from that company shows up on the Jobs page -
+unfiltered, no keyword/location matching yet (that's a deferred
+per-viewer feature; the **Alerts** page still works if you want to use
+it, it's just not wired into the scraper).
 
 ## 8. (Optional) Telegram notifications
 
@@ -179,11 +189,27 @@ works if you want to use it, it's just not wired into the scraper).
 ## 9. Run the scraper
 
 Either click **Fetch jobs now** on the live site's Jobs page (signed in
-as the allowed email), or trigger it manually from GitHub: **Actions tab
+as an admin), or trigger it manually from GitHub: **Actions tab
 → Scrape jobs → Run workflow**. Both dispatch the same workflow. The
 cron schedule is currently commented out in
 `.github/workflows/scrape.yml` - uncomment it (and adjust the interval)
 if you want it to run automatically again.
+
+## Managing admins and users
+
+Beyond the permanent bootstrap admin (`ALLOWED_EMAIL` in
+`worker/wrangler.toml`), you can grant others access from the **Admins**
+page - visible to everyone, but the add/remove controls only work when
+signed in as an existing `admin`. Two roles:
+- **admin** - full access: companies, alerts, applications, fetch-jobs,
+  sync-jobs, and managing the admin/user list itself.
+- **user** - can manage alerts and applications only; everything else is
+  read-only.
+
+The list lives in `frontend/public/data/admins.json`, written through
+the Worker the same way as the other data files (a git-tracked, auditable
+commit per change). There's no "edit role" action - change someone's role
+by removing and re-adding them.
 
 ## Offline / local admin fallback
 

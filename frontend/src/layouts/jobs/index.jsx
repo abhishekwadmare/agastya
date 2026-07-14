@@ -16,6 +16,8 @@ import ComplexStatisticsCard from "examples/Cards/StatisticsCards/ComplexStatist
 import { useAuth } from "context/AuthContext.jsx";
 import { useData } from "context/DataContext.jsx";
 import { callWorker } from "lib/callWorker.js";
+import { getCurrentRole } from "lib/roles.js";
+import { BOOTSTRAP_ADMIN_EMAIL } from "../../config.js";
 import StatusSnackbar from "components/StatusSnackbar.jsx";
 import JobRow from "layouts/jobs/components/JobRow.jsx";
 
@@ -40,8 +42,9 @@ function timeAgo(isoString) {
 }
 
 export default function Jobs() {
-  const { idToken, requireSignIn } = useAuth();
-  const { jobsData, companiesData, applicationsData, loading } = useData();
+  const { idToken, email, requireSignIn } = useAuth();
+  const { jobsData, companiesData, applicationsData, adminsData, loading } = useData();
+  const canManage = getCurrentRole(email, adminsData, BOOTSTRAP_ADMIN_EMAIL) === "admin";
   const [locallyApplied, setLocallyApplied] = useState(readLocalApplied());
   const [activeCompany, setActiveCompany] = useState("all");
   const [fetching, setFetching] = useState(false);
@@ -147,7 +150,7 @@ export default function Jobs() {
             size="small"
             onClick={handleFetchJobs}
             disabled={fetching}
-            sx={{ opacity: idToken ? 1 : 0.6 }}
+            sx={{ opacity: canManage ? 1 : 0.6 }}
           >
             <Icon sx={{ mr: 0.5 }}>{fetching ? "hourglass_top" : "sync"}</Icon>
             {fetching ? "Fetching…" : "Fetch jobs now"}

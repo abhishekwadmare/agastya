@@ -7,12 +7,14 @@ const EMPTY_JOBS = { last_scraped: null, jobs: [] };
 const EMPTY_ALERTS = { alerts: [] };
 const EMPTY_COMPANIES = { companies: [] };
 const EMPTY_APPLICATIONS = { applications: [] };
+const EMPTY_ADMINS = { admins: [] };
 
 export function DataProvider({ children }) {
   const [jobsData, setJobsData] = useState(EMPTY_JOBS);
   const [alertsData, setAlertsData] = useState(EMPTY_ALERTS);
   const [companiesData, setCompaniesData] = useState(EMPTY_COMPANIES);
   const [applicationsData, setApplicationsData] = useState(EMPTY_APPLICATIONS);
+  const [adminsData, setAdminsData] = useState(EMPTY_ADMINS);
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(() => {
@@ -26,11 +28,13 @@ export function DataProvider({ children }) {
       fetch(`${base}data/applications.json${bust}`)
         .then((r) => r.json())
         .catch(() => EMPTY_APPLICATIONS),
-    ]).then(([jobs, alerts, companies, applications]) => {
+      fetch(`${base}data/admins.json${bust}`).then((r) => r.json()).catch(() => EMPTY_ADMINS),
+    ]).then(([jobs, alerts, companies, applications, admins]) => {
       setJobsData(jobs);
       setAlertsData(alerts);
       setCompaniesData(companies);
       setApplicationsData(applications);
+      setAdminsData(admins);
       setLoading(false);
     });
   }, []);
@@ -41,7 +45,15 @@ export function DataProvider({ children }) {
 
   return (
     <DataContext.Provider
-      value={{ jobsData, alertsData, companiesData, applicationsData, loading, reload }}
+      value={{
+        jobsData,
+        alertsData,
+        companiesData,
+        applicationsData,
+        adminsData,
+        loading,
+        reload,
+      }}
     >
       {children}
     </DataContext.Provider>
