@@ -46,9 +46,10 @@ const colors = {
     focus: "#000000",
   },
 
+  // Lighter than light-theme's primary so it stays visible against the dark card background (#202940).
   primary: {
-    main: "#e91e63",
-    focus: "#e91e63",
+    main: "#4C5F94",
+    focus: "#5A6EA8",
   },
 
   secondary: {
@@ -100,8 +101,8 @@ const colors = {
 
   gradients: {
     primary: {
-      main: "#EC407A",
-      state: "#D81B60",
+      main: "#5A6EA8",
+      state: "#374876",
     },
 
     secondary: {

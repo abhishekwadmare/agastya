@@ -6,6 +6,8 @@ import CssBaseline from "@mui/material/CssBaseline";
 
 import Sidenav from "examples/Sidenav";
 import theme from "assets/theme";
+import themeDark from "assets/theme-dark";
+import agastyaMark from "assets/images/agastya-mark.svg";
 import routes from "routes";
 
 import { MaterialUIControllerProvider, useMaterialUIController, setMiniSidenav } from "context";
@@ -14,7 +16,7 @@ import { DataProvider } from "context/DataContext.jsx";
 
 function Layout() {
   const [controller, dispatch] = useMaterialUIController();
-  const { miniSidenav, sidenavColor } = controller;
+  const { miniSidenav, sidenavColor, darkMode } = controller;
   const [onMouseEnter, setOnMouseEnter] = useState(false);
   const { pathname } = useLocation();
 
@@ -38,9 +40,11 @@ function Layout() {
   }
 
   return (
-    <>
+    <ThemeProvider theme={darkMode ? themeDark : theme}>
+      <CssBaseline />
       <Sidenav
         color={sidenavColor}
+        brand={agastyaMark}
         brandName="Agastya"
         routes={routes}
         onMouseEnter={handleOnMouseEnter}
@@ -52,21 +56,18 @@ function Layout() {
         ))}
         <Route path="*" element={<Navigate to="/jobs" />} />
       </Routes>
-    </>
+    </ThemeProvider>
   );
 }
 
 export default function App() {
   return (
     <MaterialUIControllerProvider>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <AuthProvider>
-          <DataProvider>
-            <Layout />
-          </DataProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <AuthProvider>
+        <DataProvider>
+          <Layout />
+        </DataProvider>
+      </AuthProvider>
     </MaterialUIControllerProvider>
   );
 }

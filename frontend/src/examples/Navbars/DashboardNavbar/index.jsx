@@ -24,7 +24,7 @@ import Breadcrumbs from "examples/Breadcrumbs";
 import { navbar, navbarContainer, navbarRow, navbarMobileMenu } from "examples/Navbars/DashboardNavbar/styles";
 
 // Material Dashboard 2 React context
-import { useMaterialUIController, setTransparentNavbar, setMiniSidenav } from "context";
+import { useMaterialUIController, setTransparentNavbar, setMiniSidenav, setDarkMode } from "context";
 
 // Agastya auth
 import { useAuth, GoogleSignInButton } from "context/AuthContext.jsx";
@@ -56,6 +56,7 @@ function DashboardNavbar({ absolute, light, isMini }) {
   }, [dispatch, fixedNavbar]);
 
   const handleMiniSidenav = () => setMiniSidenav(dispatch, !miniSidenav);
+  const handleDarkMode = () => setDarkMode(dispatch, !darkMode);
 
   // Styles for the navbar icons
   const iconsStyle = ({ palette: { dark, white, text }, functions: { rgba } }) => ({
@@ -95,6 +96,16 @@ function DashboardNavbar({ absolute, light, isMini }) {
               ) : (
                 <GoogleSignInButton />
               )}
+              <IconButton
+                size="small"
+                disableRipple
+                color="inherit"
+                onClick={handleDarkMode}
+              >
+                <Icon sx={iconsStyle} fontSize="medium">
+                  {darkMode ? "light_mode" : "dark_mode"}
+                </Icon>
+              </IconButton>
               <IconButton
                 size="small"
                 disableRipple
