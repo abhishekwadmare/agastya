@@ -5,6 +5,7 @@ import Stack from "@mui/material/Stack";
 import Icon from "@mui/material/Icon";
 
 import MDBox from "components/MDBox";
+import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
@@ -18,8 +19,6 @@ import { callWorker } from "lib/callWorker.js";
 import { isAdmin, requireAdmin } from "lib/roles.js";
 import { BOOTSTRAP_ADMIN_EMAIL } from "../../config.js";
 import StatusSnackbar from "components/StatusSnackbar.jsx";
-import EmptyState from "components/EmptyState.jsx";
-import ListRowSkeleton from "components/ListRowSkeleton.jsx";
 import JobRow from "layouts/jobs/components/JobRow.jsx";
 
 const LOCAL_APPLIED_KEY = "agastya_locally_marked_applied";
@@ -166,13 +165,25 @@ export default function Jobs() {
           </MDButton>
         </MDBox>
 
-        {loading && <ListRowSkeleton count={3} />}
+        {loading && (
+          <MDTypography variant="button" color="text">
+            Loading jobs…
+          </MDTypography>
+        )}
 
         {!loading && visibleJobs.length === 0 && (
-          <EmptyState
-            icon="work_off"
-            message="No jobs yet. The scraper runs on a schedule — check back after the next scan, or add a company on the Companies page."
-          />
+          <MDBox
+            border="1px dashed"
+            borderColor="grey.400"
+            borderRadius="lg"
+            p={4}
+            textAlign="center"
+          >
+            <MDTypography variant="button" color="text">
+              No jobs yet. The scraper runs on a schedule — check back after the next scan, or add
+              a company on the Companies page.
+            </MDTypography>
+          </MDBox>
         )}
 
         <MDBox>

@@ -248,33 +248,6 @@ kept for that still-unbuilt keyword-matching feature.
   own look, not accidentally lost. Do not treat their absence as a bug
   or try to resurrect them without checking with Abhi first; this note
   exists specifically so a future session doesn't "fix" this.
-- **Visual polish pass (2026-07): dark mode, a real accent color, a
-  logo, and consistent list rows - still stock Material Dashboard
-  underneath, not a re-theme.** `assets/theme-dark/` was fully ported
-  from day one but sat completely unused until this pass - `App.jsx`
-  now swaps `ThemeProvider` between `assets/theme` and `assets/theme-
-  dark` based on `controller.darkMode` (persisted to
-  `localStorage["agastya_dark_mode"]`), toggled via an icon button in
-  `DashboardNavbar`. The stock MD2 pink `primary` (`#e91e63`, which was
-  barely referenced in app code - `info` blue is the real workhorse
-  color everywhere) is now a deep navy/indigo (`#26365E` light /
-  `#4C5F94` dark - lighter in dark mode so it stays visible against the
-  dark card background) in both `assets/theme{,-dark}/base/colors.js`,
-  values-only within the existing MD2 structure - this is intentional,
-  don't "fix" it back to pink. Headings (`h1`-`h6`, `d1`-`d6`) use
-  **Space Grotesk** (`baseProperties.fontFamilyHeading` in both
-  `typography.js` files) while body/button/caption text stays on
-  Roboto. The sidenav has an actual logo now
-  (`assets/images/agastya-mark.svg`, a small star glyph tying to the
-  Canopus/navigation naming story, doubling as `public/favicon.svg`) -
-  `Sidenav`'s `brand` prop was always wired, just never passed a value
-  before. Companies/Alerts/Admins' list rows were bare border-bottom
-  flex rows; they now use a shared `components/ListRow` (Card +
-  `MDAvatar` initial + hover elevation) matching Jobs' pre-existing
-  `JobRow` card pattern - `MDAvatar`, previously ported but unused
-  anywhere, is now this list's per-row visual anchor. None of this
-  changed any data-fetching, auth, or mutation logic - it's a
-  presentation-only pass (issue #15).
 - **UI template reference: reuse this, don't reinvent per feature.**
   The frontend's entire look and component library comes from
   [Material Dashboard React](https://github.com/creativetimofficial/material-dashboard-react)

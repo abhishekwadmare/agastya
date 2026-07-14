@@ -29,7 +29,6 @@ const { white } = colors;
 
 const baseProperties = {
   fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
-  fontFamilyHeading: '"Space Grotesk", "Roboto", "Helvetica", "Arial", sans-serif',
   fontWeightLighter: 100,
   fontWeightLight: 300,
   fontWeightRegular: 400,
@@ -46,13 +45,13 @@ const baseProperties = {
 };
 
 const baseHeadingProperties = {
-  fontFamily: baseProperties.fontFamilyHeading,
+  fontFamily: baseProperties.fontFamily,
   color: white.main,
   fontWeight: baseProperties.fontWeightBold,
 };
 
 const baseDisplayProperties = {
-  fontFamily: baseProperties.fontFamilyHeading,
+  fontFamily: baseProperties.fontFamily,
   color: white.main,
   fontWeight: baseProperties.fontWeightLight,
   lineHeight: 1.2,
