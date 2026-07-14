@@ -11,10 +11,15 @@ import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import Footer from "examples/Footer";
 import DataTable from "examples/Tables/DataTable";
 
+import { useAuth } from "context/AuthContext.jsx";
 import { useData } from "context/DataContext.jsx";
+import { isAdmin } from "lib/roles.js";
+import { BOOTSTRAP_ADMIN_EMAIL } from "../../config.js";
 
 export default function Applications() {
-  const { applicationsData, loading } = useData();
+  const { idToken, email } = useAuth();
+  const { applicationsData, adminsData, loading } = useData();
+  const canManage = isAdmin(email, adminsData, BOOTSTRAP_ADMIN_EMAIL);
 
   const columns = [
     { Header: "title", accessor: "title", width: "35%", align: "left" },
@@ -66,7 +71,11 @@ export default function Applications() {
               <MDBox p={3}>
                 <MDTypography variant="h6">Applications</MDTypography>
                 <MDTypography variant="button" color="text">
-                  Jobs you've marked as applied, {applicationsData.applications.length} total.
+                  {!idToken
+                    ? "Sign in with Google (top-right) to see the jobs you've marked applied."
+                    : canManage
+                    ? `Showing every signed-in user's marked applications (admin view), ${applicationsData.applications.length} total.`
+                    : `Jobs you've marked as applied, ${applicationsData.applications.length} total.`}
                 </MDTypography>
               </MDBox>
               {!loading && (

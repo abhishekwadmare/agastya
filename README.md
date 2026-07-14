@@ -5,11 +5,13 @@ pages directly (rather than waiting for LinkedIn/Indeed syndication),
 surfaces new postings on a public multi-page dashboard (Jobs / Companies /
 Alerts / Admins / Applications / About), and sends desktop + Telegram
 notifications.
-Anyone can view the dashboard and even fill out the add-company/add-alert
-forms, but actually adding, deleting, syncing, or triggering a scrape
-requires signing in with Google as an admin or user - enforced
-server-side, not just in the browser. A built-in **Admins** page lets the
-owner grant others limited (user) or full (admin) access.
+Anyone can view the Jobs/Companies dashboard, and any Google account can
+sign in to add its own alerts and mark jobs applied - those are private
+to whoever added them, not a shared public list. Managing companies,
+triggering/syncing scrapes, and granting others that same access all
+require being an admin - enforced server-side, not just in the browser.
+A built-in **Admins** page lets the bootstrap owner grant others full
+admin access.
 
 ## Screenshots
 
@@ -43,13 +45,14 @@ scraper/   Python. Polls every company's public Workday JSON API
 frontend/  React (Vite) + Material Dashboard React (MUI-based, Creative
            Tim), deployed to GitHub Pages. Multi-page - Jobs, Companies,
            Alerts, Admins, Applications, About - via HashRouter (no
-           server-side routing needed on static hosting). Jobs/Companies
-           are fetched live from the Worker; Alerts/Applications/Admins
-           are still fetched as static JSON files. The Companies,
-           Alerts, and Admins pages have "Sign in with Google" admin
-           controls - but the frontend itself never decides who's
-           allowed to write anything; it just calls the Worker and shows
-           the result (admin-only UI hiding is cosmetic only).
+           server-side routing needed on static hosting). Jobs/Companies/
+           Alerts/Applications are all fetched live from the Worker;
+           only Admins still fetches a static `admins.json`. The
+           Companies, Alerts, and Admins pages have "Sign in with
+           Google" admin controls - but the frontend itself never
+           decides who's allowed to write anything; it just calls the
+           Worker and shows the result (admin-only UI hiding is
+           cosmetic only).
 
 worker/    A Cloudflare Worker. Verifies the Google ID token it receives.
            Any verified sign-in can add its own alerts and mark jobs
@@ -57,20 +60,27 @@ worker/    A Cloudflare Worker. Verifies the Google ID token it receives.
            fetch/sync jobs, managing the admin list) requires the email
            to be an admin - either the permanent bootstrap owner
            (ALLOWED_EMAIL) or an entry in admins.json (a flat list, no
-           roles). jobs.json/companies.json live in an R2 bucket bound to
-           the Worker, served publicly with no auth via GET /api/jobs and
-           GET /api/companies. Everything else still writes to the
-           GitHub repo using a GitHub token stored as a Worker secret
-           (or, for "Fetch jobs now", dispatches the scraper workflow via
-           the GitHub Actions API). This is the actual security boundary.
-           Deleting an alert also requires owning it, unless you're an
-           admin. POST /api/scraper/sync-jobs is a separate route the
-           scraper itself uses, authenticated by a shared secret instead
-           of a Google token.
+           roles). jobs.json/companies.json/alerts.json/applications.json
+           all live in an R2 bucket bound to the Worker. jobs/companies
+           are public, no auth (GET /api/jobs, GET /api/companies).
+           alerts/applications are private - GET /api/alerts and
+           GET /api/applications return only entries you own (or every
+           entry, if you're an admin), and nothing at all if you're not
+           signed in. admins.json is the one file left on the GitHub
+           repo, written using a GitHub token stored as a Worker secret
+           (that same token also dispatches the scraper workflow via the
+           GitHub Actions API for "Fetch jobs now"). This is the actual
+           security boundary. Deleting an alert also requires owning it,
+           unless you're an admin. POST /api/scraper/sync-jobs is a
+           separate route the scraper itself uses, authenticated by a
+           shared secret instead of a Google token.
 
-admin/     A local-only CLI, kept as an offline fallback. Uses a hashed
-           password in a git-ignored token.txt. Useful if you want to
-           make changes without going through the browser at all.
+admin/     A local-only CLI, kept as an offline fallback - though as of
+           the R2 migration above, none of its commands work anymore
+           (they all expect local copies of files that live only in R2
+           now); it prints a clear error pointing at the web UI instead
+           of doing anything. Uses a hashed password in a git-ignored
+           token.txt.
 ```
 
 Nothing sensitive - no GitHub token, no password - is ever present in the
@@ -78,11 +88,12 @@ deployed frontend bundle. The Google client ID and Worker URL in
 `frontend/src/config.js` are meant to be public.
 
 **Companies vs. Alerts:** `companies.json` (which Workday career pages to
-watch) is what actually drives the scraper. `alerts.json` still exists
-and is still fully functional to edit, but nothing reads it anymore -
-it's reserved for a future per-viewer keyword/location filtering
-feature. Every posting from a watched company shows up on Jobs today,
-unfiltered.
+watch) is what actually drives the scraper. `alerts.json` is fully
+functional to add/edit/delete, and each entry is now private to whoever
+added it - but nothing filters *jobs* by an alert's keywords yet, that's
+reserved for a future feature. Every posting from a watched company
+shows up on Jobs today for everyone, unfiltered, regardless of anyone's
+alerts.
 
 **Known quirks worth knowing before you debug them:**
 - GitHub Actions has a built-in loop-prevention rule: a commit pushed
@@ -112,10 +123,11 @@ unfiltered.
 1. Push this project to a new GitHub repo.
 2. Create a **fine-grained personal access token**
    (Settings → Developer settings → Fine-grained tokens) scoped to just
-   this repo, with **Contents: read and write** (for alerts/applications/
-   admins, still git-backed) AND **Actions: read and write** permissions.
-   The second one is easy to miss but required - without it, the Jobs
-   page's "Fetch jobs now" button will fail with a permissions error.
+   this repo, with **Contents: read and write** (only `admins.json` is
+   git-backed now - everything else moved to R2) AND **Actions: read
+   and write** permissions. The second one is easy to miss but required
+   - without it, the Jobs page's "Fetch jobs now" button will fail with
+   a permissions error.
 
 ## 3. Deploy the Cloudflare Worker
 
@@ -163,13 +175,18 @@ npm run deploy
 Wrangler will print your Worker's URL, something like
 `https://agastya-admin.<your-subdomain>.workers.dev`.
 
-`jobs.json`/`companies.json` start out empty in the new bucket - the
-Jobs/Companies pages will show nothing until you add a company (step 7)
-and run the scraper (step 9). If you're migrating from an existing
-git-tracked `jobs.json`/`companies.json`, seed the bucket first instead:
+All four files (`jobs.json`, `companies.json`, `alerts.json`,
+`applications.json`) start out empty in the new bucket automatically -
+the Worker falls back to an empty list for any of them that don't exist
+yet, both on read and on the first write, so no seeding is required for
+a fresh setup. If you're migrating from an existing git-tracked set of
+these files instead, seed them from your actual data so you don't lose
+anything:
 ```bash
 npx wrangler r2 object put agastya-data/jobs.json --file=path/to/jobs.json --content-type=application/json
 npx wrangler r2 object put agastya-data/companies.json --file=path/to/companies.json --content-type=application/json
+npx wrangler r2 object put agastya-data/alerts.json --file=path/to/alerts.json --content-type=application/json
+npx wrangler r2 object put agastya-data/applications.json --file=path/to/applications.json --content-type=application/json
 ```
 
 ## 4. Point the frontend at your Worker and Google client
@@ -249,19 +266,14 @@ no "edit" action - remove and re-add if needed.
 
 ## Offline / local admin fallback
 
-If you'd rather not go through the browser:
-
-```bash
-python admin/set_token.py          # run once, creates admin/token.txt (git-ignored)
-python admin/admin_cli.py add-alert
-python admin/admin_cli.py delete-alert --id <alert-id>   # requires the password
-python admin/admin_cli.py mark-applied --job-id "<id>"
-```
-
-Then commit and push `frontend/public/data/` yourself. `mark-applied`
-specifically no longer works locally - `jobs.json` moved to R2 (issue
-#7), so this offline tool can't look up job details anymore; use the
-Apply button on the live Jobs page instead.
+`admin/admin_cli.py` no longer works, for any of its three commands
+(`add-alert`, `delete-alert`, `mark-applied`) - they all depended on
+local copies of `alerts.json`/`jobs.json`/`applications.json`, which
+moved to R2 (issue #7) and are now only reachable through the Worker.
+This offline tool was deliberately left as-is rather than repointed at
+the Worker/R2 (low-stakes fallback, not worth the added complexity) -
+each command now prints a clear error and exits instead of silently
+diverging from the live site. Use the web UI instead.
 
 ## Local job watcher (desktop + Telegram notifications)
 

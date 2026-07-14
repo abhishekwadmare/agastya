@@ -2,6 +2,15 @@
 """
 Agastya admin CLI - local only.
 
+NOTE: all three commands below depend on local copies of alerts.json/
+jobs.json/applications.json that no longer exist - those files moved to
+a Cloudflare R2 bucket as of issue #7, read/written only through the
+Worker now. This tool was deliberately left pointed at the old local
+files rather than repointed at the Worker/R2 (it's a low-stakes offline
+fallback, not worth the added complexity of giving it real API access) -
+every command below will print a clear error and exit rather than
+silently diverging from the live site. Use the web UI instead.
+
 Add an alert (no password needed - low risk action):
     python admin/admin_cli.py add-alert
 
@@ -10,11 +19,6 @@ Delete an alert (requires admin password):
 
 Mark a job as applied (no password needed):
     python admin/admin_cli.py mark-applied --job-id "workday:/en-US/Workday/job/..."
-
-After any change, review the diff and commit/push yourself:
-    git add data/ frontend/public/data/
-    git commit -m "update alerts"
-    git push
 """
 
 import argparse
@@ -50,6 +54,21 @@ def require_admin():
         sys.exit(1)
 
 
+def require_local_file(path, hint):
+    # alerts.json/jobs.json/applications.json all moved to R2 (issue #7)
+    # - this offline CLI was deliberately left pointed at the old local
+    # files rather than repointed at the Worker/R2, so every command
+    # here fails clearly instead of silently diverging from the live
+    # site or crashing with a raw traceback.
+    if not path.exists():
+        print(
+            f"{path.relative_to(REPO_ROOT)} no longer exists locally - that data "
+            f"moved to R2. {hint}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def load_json(path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -61,6 +80,7 @@ def save_json(path, data):
 
 
 def cmd_add_alert(args):
+    require_local_file(ALERTS_FILE, "Use the live Alerts page instead.")
     alerts_data = load_json(ALERTS_FILE)
 
     alert_id = input("Alert id (short, unique, e.g. 'mongodb-swe'): ").strip()
@@ -95,6 +115,7 @@ def cmd_add_alert(args):
 
 def cmd_delete_alert(args):
     require_admin()
+    require_local_file(ALERTS_FILE, "Use the live Alerts page instead.")
     alerts_data = load_json(ALERTS_FILE)
 
     before = len(alerts_data["alerts"])
@@ -110,18 +131,7 @@ def cmd_delete_alert(args):
 
 
 def cmd_mark_applied(args):
-    # jobs.json moved to R2 (issue #7) - it's no longer a local file this
-    # CLI can read. Use the web UI's Apply button instead, which calls
-    # the live Worker; this offline tool was never repointed at R2/the
-    # Worker's read routes, by design (it's the local-only fallback).
-    if not JOBS_FILE.exists():
-        print(
-            "frontend/public/data/jobs.json no longer exists locally - job data "
-            "moved to R2. Use the Apply button on the live Jobs page instead.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
+    require_local_file(JOBS_FILE, "Use the Apply button on the live Jobs page instead.")
     applications_data = load_json(APPLICATIONS_FILE) if APPLICATIONS_FILE.exists() else {"applications": []}
     jobs_data = load_json(JOBS_FILE)
 
