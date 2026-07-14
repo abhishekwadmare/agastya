@@ -130,10 +130,16 @@ export default function Alerts() {
           <Grid item xs={12} md={5}>
             <Card>
               <MDBox p={3}>
-                <MDTypography variant="h6" mb={2}>
-                  Current alerts
+                <MDTypography variant="h6" mb={0.5}>
+                  {canManage ? "All alerts (admin view)" : "Your alerts"}
                 </MDTypography>
-                {alertsData.alerts.length === 0 && (
+                {!idToken && (
+                  <MDTypography variant="caption" color="text" display="block" mb={1.5}>
+                    Alerts are private - sign in with Google (top-right) to see and manage your
+                    own.
+                  </MDTypography>
+                )}
+                {idToken && alertsData.alerts.length === 0 && (
                   <MDTypography variant="button" color="text">
                     No alerts yet — add one on the right.
                   </MDTypography>

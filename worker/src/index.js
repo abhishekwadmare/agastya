@@ -8,18 +8,28 @@
  * roster itself require the email to be an admin: either the permanent
  * bootstrap owner (env.ALLOWED_EMAIL) or an entry in admins.json.
  *
- * jobs.json and companies.json live in the DATA_BUCKET R2 bucket, read
- * publicly via GET /api/jobs and GET /api/companies with no auth at all
- * - see r2GetJson/r2PutJson. alerts.json, applications.json, and
- * admins.json still live in git, read/written via the GitHub Contents
- * API (githubGetFile/githubPutFile) - admins.json deliberately stays in
- * git even after alerts/applications eventually move to R2 too, since
- * its commit history is a free audit log of who has admin access and
- * when that changed. /api/fetch-jobs triggers the scrape.yml GitHub
- * Actions workflow via the Actions API. /api/scraper/sync-jobs is how
- * the scraper itself pushes newly-found jobs into R2 - it can't do
- * Google OAuth, so it authenticates with a shared secret instead
- * (SCRAPER_API_KEY) rather than going through verifyGoogleIdentity.
+ * jobs.json, companies.json, alerts.json, and applications.json all
+ * live in the DATA_BUCKET R2 bucket now (issue #7) - see
+ * r2GetJson/r2PutJson. admins.json is the one file that stays in git,
+ * permanently, read/written via the GitHub Contents API
+ * (githubGetFile/githubPutFile) - its commit history is a free audit
+ * log of who has admin access and when that changed, which R2 doesn't
+ * give you for free; that's worth more than storage consistency here.
+ *
+ * jobs/companies are public blobs - GET /api/jobs and GET /api/companies
+ * need no auth. alerts/applications are personal - GET /api/alerts and
+ * GET /api/applications take an optional `idToken` query param: no
+ * token (or an invalid one) gets an empty list back, a non-admin token
+ * gets only entries they own, an admin token gets every entry (mirrors
+ * the moderation capability admins already have on delete). Every alert/
+ * application write stamps an `owner` field from the caller's verified
+ * email - never trust an `owner` in the request body.
+ *
+ * /api/fetch-jobs triggers the scrape.yml GitHub Actions workflow via
+ * the Actions API. /api/scraper/sync-jobs is how the scraper itself
+ * pushes newly-found jobs into R2 - it can't do Google OAuth, so it
+ * authenticates with a shared secret instead (SCRAPER_API_KEY) rather
+ * than going through verifyGoogleIdentity.
  *
  * Deleting an alert additionally requires owning it (or being an admin,
  * who can delete any alert) - see handleDeleteAlert.
@@ -46,7 +56,8 @@
  *   GITHUB_BRANCH     - usually "main"
  *
  * Required Worker bindings:
- *   DATA_BUCKET       - R2 bucket binding for jobs.json/companies.json
+ *   DATA_BUCKET       - R2 bucket binding for jobs/companies/alerts/
+ *                       applications.json
  */
 
 const DATA_PATH_PREFIX = "frontend/public/data";
@@ -97,6 +108,19 @@ async function isAdmin(email, env) {
 async function requireAdmin(email, env) {
   if (!(await isAdmin(email, env))) {
     throw new Error("Forbidden: this action requires admin access");
+  }
+}
+
+// Used by the GET /api/alerts and GET /api/applications reads, which
+// are allowed to be called with no token at all (they just get an
+// empty list back) - unlike every write route, an invalid/expired
+// token here isn't an error, it's just "not signed in".
+async function tryVerifyGoogleIdentity(idToken, env) {
+  if (!idToken) return null;
+  try {
+    return await verifyGoogleIdentity(idToken, env);
+  } catch {
+    return null;
   }
 }
 
@@ -174,8 +198,10 @@ async function r2PutJson(key, content, etag, env) {
   }
 }
 
+const EMPTY_ALERTS = { alerts: [] };
+
 async function handleAddAlert(payload, env, actorEmail) {
-  const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/alerts.json`, env);
+  const { content, etag } = await r2GetJson("alerts.json", env, EMPTY_ALERTS);
   const newAlert = {
     ...payload.alert,
     owner: actorEmail,
@@ -185,18 +211,12 @@ async function handleAddAlert(payload, env, actorEmail) {
     throw new Error(`Alert id '${newAlert.id}' already exists`);
   }
   content.alerts.push(newAlert);
-  await githubPutFile(
-    `${DATA_PATH_PREFIX}/alerts.json`,
-    content,
-    sha,
-    `admin: add alert ${newAlert.id} (by ${actorEmail})`,
-    env
-  );
+  await r2PutJson("alerts.json", content, etag, env);
   return { ok: true, alert: newAlert };
 }
 
 async function handleDeleteAlert(payload, env, actorEmail) {
-  const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/alerts.json`, env);
+  const { content, etag } = await r2GetJson("alerts.json", env, EMPTY_ALERTS);
   const target = content.alerts.find((a) => a.id === payload.id);
   if (!target) {
     throw new Error(`No alert found with id '${payload.id}'`);
@@ -207,14 +227,16 @@ async function handleDeleteAlert(payload, env, actorEmail) {
     throw new Error("You can only delete your own alerts");
   }
   content.alerts = content.alerts.filter((a) => a.id !== payload.id);
-  await githubPutFile(
-    `${DATA_PATH_PREFIX}/alerts.json`,
-    content,
-    sha,
-    `admin: delete alert ${payload.id} (by ${actorEmail})`,
-    env
-  );
+  await r2PutJson("alerts.json", content, etag, env);
   return { ok: true };
+}
+
+async function handleGetAlerts(env, idToken) {
+  const payload = await tryVerifyGoogleIdentity(idToken, env);
+  if (!payload) return EMPTY_ALERTS;
+  const { content } = await r2GetJson("alerts.json", env, EMPTY_ALERTS);
+  if (await isAdmin(payload.email, env)) return content;
+  return { alerts: content.alerts.filter((a) => a.owner === payload.email) };
 }
 
 async function handleAddCompany(payload, env) {
@@ -323,10 +345,12 @@ async function handleGetCompanies(env) {
   return content;
 }
 
+const EMPTY_APPLICATIONS = { applications: [] };
+
 async function handleMarkApplied(payload, env, actorEmail) {
-  const [{ content: jobsContent }, { content: appsContent, sha: appsSha }] = await Promise.all([
+  const [{ content: jobsContent }, { content: appsContent, etag: appsEtag }] = await Promise.all([
     r2GetJson("jobs.json", env, EMPTY_JOBS),
-    githubGetFile(`${DATA_PATH_PREFIX}/applications.json`, env),
+    r2GetJson("applications.json", env, EMPTY_APPLICATIONS),
   ]);
 
   const job = jobsContent.jobs.find((j) => j.id === payload.jobId);
@@ -344,17 +368,19 @@ async function handleMarkApplied(payload, env, actorEmail) {
     apply_url: job.apply_url,
     applied_at: new Date().toISOString(),
     status: "applied",
-    marked_by: actorEmail,
+    owner: actorEmail,
   });
 
-  await githubPutFile(
-    `${DATA_PATH_PREFIX}/applications.json`,
-    appsContent,
-    appsSha,
-    `admin: mark applied - ${job.title} at ${job.company} (by ${actorEmail})`,
-    env
-  );
+  await r2PutJson("applications.json", appsContent, appsEtag, env);
   return { ok: true };
+}
+
+async function handleGetApplications(env, idToken) {
+  const payload = await tryVerifyGoogleIdentity(idToken, env);
+  if (!payload) return EMPTY_APPLICATIONS;
+  const { content } = await r2GetJson("applications.json", env, EMPTY_APPLICATIONS);
+  if (await isAdmin(payload.email, env)) return content;
+  return { applications: content.applications.filter((a) => a.owner === payload.email) };
 }
 
 async function handleAddAdmin(payload, env, actorEmail) {
@@ -409,11 +435,15 @@ async function handleRemoveAdmin(payload, env, actorEmail) {
   return { ok: true };
 }
 
-// Public, unauthenticated - jobs/companies are meant to be visible to
-// any visitor, R2 just replaces git as the storage backend.
+// jobs/companies are public, no auth needed. alerts/applications take
+// an optional idToken (query param, since GET requests have no body)
+// and filter down to the caller's own entries - see handleGetAlerts/
+// handleGetApplications.
 const GET_ROUTES = {
   "/api/jobs": handleGetJobs,
   "/api/companies": handleGetCompanies,
+  "/api/alerts": handleGetAlerts,
+  "/api/applications": handleGetApplications,
 };
 
 const POST_ROUTES = {
@@ -447,7 +477,7 @@ export default {
       if (request.method === "GET") {
         const handler = GET_ROUTES[url.pathname];
         if (!handler) return jsonResponse({ error: "Not found" }, 404);
-        return jsonResponse(await handler(env));
+        return jsonResponse(await handler(env, url.searchParams.get("idToken")));
       }
 
       if (request.method !== "POST") {

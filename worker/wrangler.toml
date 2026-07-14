@@ -14,9 +14,9 @@ GITHUB_OWNER = "abhishekwadmare"
 GITHUB_REPO = "agastya"
 GITHUB_BRANCH = "main"
 
-# jobs.json / companies.json (and, later, alerts.json / applications.json)
-# live in this R2 bucket instead of git - see the "Single source of
-# truth" note in CLAUDE.md for why admins.json stays in git instead.
+# jobs.json / companies.json / alerts.json / applications.json all live
+# in this R2 bucket instead of git - see the "Single source of truth"
+# note in CLAUDE.md for why admins.json stays in git instead.
 [[r2_buckets]]
 binding = "DATA_BUCKET"
 bucket_name = "agastya-data"

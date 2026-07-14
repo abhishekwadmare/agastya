@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { WORKER_BASE_URL } from "../config.js";
+import { useAuth } from "./AuthContext.jsx";
 
 const DataContext = createContext(null);
 
@@ -11,6 +12,7 @@ const EMPTY_APPLICATIONS = { applications: [] };
 const EMPTY_ADMINS = { admins: [] };
 
 export function DataProvider({ children }) {
+  const { idToken } = useAuth();
   const [jobsData, setJobsData] = useState(EMPTY_JOBS);
   const [alertsData, setAlertsData] = useState(EMPTY_ALERTS);
   const [companiesData, setCompaniesData] = useState(EMPTY_COMPANIES);
@@ -22,15 +24,21 @@ export function DataProvider({ children }) {
     const base = import.meta.env.BASE_URL;
     // cache-bust so admin changes show up without a hard refresh
     const bust = `?t=${Date.now()}`;
+    // alerts/applications are owner-filtered server-side (see issue #7)
+    // - no token means an empty list back, not an error, so signed-out
+    // visitors just see nothing instead of a fetch failure.
+    const tokenParam = idToken ? `&idToken=${encodeURIComponent(idToken)}` : "";
     return Promise.all([
       // jobs/companies are R2-backed, served through the Worker instead
       // of static files - see issue #7
       fetch(`${WORKER_BASE_URL}/api/jobs${bust}`).then((r) => r.json()).catch(() => EMPTY_JOBS),
-      fetch(`${base}data/alerts.json${bust}`).then((r) => r.json()).catch(() => EMPTY_ALERTS),
+      fetch(`${WORKER_BASE_URL}/api/alerts${bust}${tokenParam}`)
+        .then((r) => r.json())
+        .catch(() => EMPTY_ALERTS),
       fetch(`${WORKER_BASE_URL}/api/companies${bust}`)
         .then((r) => r.json())
         .catch(() => EMPTY_COMPANIES),
-      fetch(`${base}data/applications.json${bust}`)
+      fetch(`${WORKER_BASE_URL}/api/applications${bust}${tokenParam}`)
         .then((r) => r.json())
         .catch(() => EMPTY_APPLICATIONS),
       fetch(`${base}data/admins.json${bust}`).then((r) => r.json()).catch(() => EMPTY_ADMINS),
@@ -42,7 +50,7 @@ export function DataProvider({ children }) {
       setAdminsData(admins);
       setLoading(false);
     });
-  }, []);
+  }, [idToken]);
 
   useEffect(() => {
     reload();
