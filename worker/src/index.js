@@ -1,11 +1,19 @@
 /**
  * Agastya admin worker.
  *
- * Verifies a Google ID token server-side, checks it belongs to the one
- * allowed email address, and - only if that passes - writes changes to
- * data files in the GitHub repo via the GitHub Contents API, or (for
- * /api/fetch-jobs) triggers the scrape.yml GitHub Actions workflow via
- * the Actions API.
+ * Verifies a Google ID token server-side, resolves the token's email to a
+ * role (admin or user) - either the permanent bootstrap owner (env.
+ * ALLOWED_EMAIL, always role admin) or an entry in admins.json - and
+ * only if the resolved role meets the route's required role does it write
+ * changes to data files in the GitHub repo via the GitHub Contents API,
+ * or (for /api/fetch-jobs) trigger the scrape.yml GitHub Actions workflow
+ * via the Actions API.
+ *
+ * Roles: "admin" can do everything, including managing the admin/user
+ * list itself (add-admin/remove-admin). "user" can manage alerts and
+ * applications (add-alert, delete-alert, mark-applied) only - companies,
+ * fetch-jobs, sync-jobs, and admin-list management all require "admin".
+ * See the ROUTES table below for the exact mapping.
  *
  * The GitHub token and allowed email live in Worker secrets/vars, never
  * in the frontend bundle, so nothing sensitive is ever shipped to the
@@ -18,7 +26,10 @@
  *                       this one repo only
  *
  * Required Worker vars (in wrangler.toml or the dashboard):
- *   ALLOWED_EMAIL     - e.g. abhishek.wadmare@gmail.com
+ *   ALLOWED_EMAIL     - e.g. abhishek.wadmare@gmail.com - the permanent
+ *                       bootstrap admin, always role admin regardless of
+ *                       admins.json, so this account can never be locked
+ *                       out even if admins.json is missing or corrupted
  *   GOOGLE_CLIENT_ID  - your OAuth client id, used to check token audience
  *   GITHUB_OWNER      - your GitHub username
  *   GITHUB_REPO       - repo name
@@ -35,7 +46,7 @@ function corsHeaders(origin) {
   };
 }
 
-async function verifyGoogleToken(idToken, env) {
+async function verifyGoogleIdentity(idToken, env) {
   const resp = await fetch(
     `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`
   );
@@ -47,9 +58,6 @@ async function verifyGoogleToken(idToken, env) {
   if (payload.aud !== env.GOOGLE_CLIENT_ID) {
     throw new Error("Token audience mismatch");
   }
-  if (payload.email !== env.ALLOWED_EMAIL) {
-    throw new Error("Email not authorized");
-  }
   if (payload.email_verified !== "true" && payload.email_verified !== true) {
     throw new Error("Email not verified");
   }
@@ -57,6 +65,29 @@ async function verifyGoogleToken(idToken, env) {
     throw new Error("Token expired");
   }
   return payload;
+}
+
+const ROLE_RANK = { user: 1, admin: 2 };
+
+async function resolveRole(email, env) {
+  if (email === env.ALLOWED_EMAIL) {
+    return "admin";
+  }
+  try {
+    const { content } = await githubGetFile(`${DATA_PATH_PREFIX}/admins.json`, env);
+    const entry = (content.admins || []).find((a) => a.email === email);
+    return entry ? entry.role : null;
+  } catch {
+    // admins.json missing/corrupt - fail closed for everyone except the
+    // bootstrap owner, who's already handled above.
+    return null;
+  }
+}
+
+function assertRole(role, requiredRole) {
+  if (!role || ROLE_RANK[role] < ROLE_RANK[requiredRole]) {
+    throw new Error(`Forbidden: this action requires role '${requiredRole}' or higher`);
+  }
 }
 
 function b64EncodeUnicode(str) {
@@ -109,7 +140,7 @@ async function githubPutFile(path, newContentObj, sha, message, env) {
   return resp.json();
 }
 
-async function handleAddAlert(payload, env) {
+async function handleAddAlert(payload, env, actorEmail) {
   const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/alerts.json`, env);
   const newAlert = {
     ...payload.alert,
@@ -123,13 +154,13 @@ async function handleAddAlert(payload, env) {
     `${DATA_PATH_PREFIX}/alerts.json`,
     content,
     sha,
-    `admin: add alert ${newAlert.id}`,
+    `admin: add alert ${newAlert.id} (by ${actorEmail})`,
     env
   );
   return { ok: true, alert: newAlert };
 }
 
-async function handleDeleteAlert(payload, env) {
+async function handleDeleteAlert(payload, env, actorEmail) {
   const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/alerts.json`, env);
   const before = content.alerts.length;
   content.alerts = content.alerts.filter((a) => a.id !== payload.id);
@@ -140,13 +171,13 @@ async function handleDeleteAlert(payload, env) {
     `${DATA_PATH_PREFIX}/alerts.json`,
     content,
     sha,
-    `admin: delete alert ${payload.id}`,
+    `admin: delete alert ${payload.id} (by ${actorEmail})`,
     env
   );
   return { ok: true };
 }
 
-async function handleAddCompany(payload, env) {
+async function handleAddCompany(payload, env, actorEmail) {
   const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/companies.json`, env);
 
   const tenant = (payload.company?.workday_tenant || "").trim().toLowerCase();
@@ -176,13 +207,13 @@ async function handleAddCompany(payload, env) {
     `${DATA_PATH_PREFIX}/companies.json`,
     content,
     sha,
-    `admin: add company ${newCompany.id}`,
+    `admin: add company ${newCompany.id} (by ${actorEmail})`,
     env
   );
   return { ok: true, company: newCompany };
 }
 
-async function handleDeleteCompany(payload, env) {
+async function handleDeleteCompany(payload, env, actorEmail) {
   const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/companies.json`, env);
   const before = content.companies.length;
   content.companies = content.companies.filter((c) => c.id !== payload.id);
@@ -193,7 +224,7 @@ async function handleDeleteCompany(payload, env) {
     `${DATA_PATH_PREFIX}/companies.json`,
     content,
     sha,
-    `admin: delete company ${payload.id}`,
+    `admin: delete company ${payload.id} (by ${actorEmail})`,
     env
   );
   return { ok: true };
@@ -218,7 +249,7 @@ async function handleFetchJobs(payload, env) {
   return { ok: true };
 }
 
-async function handleSyncJobs(payload, env) {
+async function handleSyncJobs(payload, env, actorEmail) {
   if (!Array.isArray(payload.jobs)) {
     throw new Error("Missing or invalid 'jobs' array");
   }
@@ -239,13 +270,13 @@ async function handleSyncJobs(payload, env) {
     `${DATA_PATH_PREFIX}/jobs.json`,
     content,
     sha,
-    `chore: sync jobs from local watcher (+${incoming.length})`,
+    `chore: sync jobs from local watcher (+${incoming.length}, by ${actorEmail})`,
     env
   );
   return { ok: true, added: incoming.length };
 }
 
-async function handleMarkApplied(payload, env) {
+async function handleMarkApplied(payload, env, actorEmail) {
   const [{ content: jobsContent }, { content: appsContent, sha: appsSha }] = await Promise.all([
     githubGetFile(`${DATA_PATH_PREFIX}/jobs.json`, env),
     githubGetFile(`${DATA_PATH_PREFIX}/applications.json`, env),
@@ -272,11 +303,80 @@ async function handleMarkApplied(payload, env) {
     `${DATA_PATH_PREFIX}/applications.json`,
     appsContent,
     appsSha,
-    `admin: mark applied - ${job.title} at ${job.company}`,
+    `admin: mark applied - ${job.title} at ${job.company} (by ${actorEmail})`,
     env
   );
   return { ok: true };
 }
+
+async function handleAddAdmin(payload, env, actorEmail) {
+  const email = (payload.email || "").trim().toLowerCase();
+  const role = payload.role === "admin" ? "admin" : "user";
+
+  if (!email || !email.includes("@")) {
+    throw new Error("A valid email is required");
+  }
+  if (email === env.ALLOWED_EMAIL) {
+    throw new Error(`${email} is the built-in owner admin and doesn't need to be added`);
+  }
+
+  const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/admins.json`, env);
+  if (content.admins.some((a) => a.email === email)) {
+    throw new Error(`${email} is already in the admin list`);
+  }
+
+  const entry = { email, role, added_at: new Date().toISOString(), added_by: actorEmail };
+  content.admins.push(entry);
+  await githubPutFile(
+    `${DATA_PATH_PREFIX}/admins.json`,
+    content,
+    sha,
+    `admin: add ${role} ${email} (by ${actorEmail})`,
+    env
+  );
+  return { ok: true, admin: entry };
+}
+
+async function handleRemoveAdmin(payload, env, actorEmail) {
+  const email = (payload.email || "").trim().toLowerCase();
+  if (!email) {
+    throw new Error("email is required");
+  }
+  if (email === env.ALLOWED_EMAIL) {
+    throw new Error("The built-in owner admin cannot be removed");
+  }
+
+  const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/admins.json`, env);
+  const target = content.admins.find((a) => a.email === email);
+  if (!target) {
+    throw new Error(`No admin/user found with email '${email}'`);
+  }
+
+  content.admins = content.admins.filter((a) => a.email !== email);
+  await githubPutFile(
+    `${DATA_PATH_PREFIX}/admins.json`,
+    content,
+    sha,
+    `admin: remove ${target.role} ${email} (by ${actorEmail})`,
+    env
+  );
+  return { ok: true };
+}
+
+// The "-admin" suffix in these route names refers to the admin/user list
+// feature, not that every entry added is role "admin" - both routes
+// manage entries of either role.
+const ROUTES = {
+  "/api/add-alert": { handler: handleAddAlert, role: "user" },
+  "/api/delete-alert": { handler: handleDeleteAlert, role: "user" },
+  "/api/mark-applied": { handler: handleMarkApplied, role: "user" },
+  "/api/add-company": { handler: handleAddCompany, role: "admin" },
+  "/api/delete-company": { handler: handleDeleteCompany, role: "admin" },
+  "/api/fetch-jobs": { handler: handleFetchJobs, role: "admin" },
+  "/api/sync-jobs": { handler: handleSyncJobs, role: "admin" },
+  "/api/add-admin": { handler: handleAddAdmin, role: "admin" },
+  "/api/remove-admin": { handler: handleRemoveAdmin, role: "admin" },
+};
 
 export default {
   async fetch(request, env) {
@@ -300,29 +400,20 @@ export default {
       if (!body.idToken) {
         throw new Error("Missing idToken");
       }
-      await verifyGoogleToken(body.idToken, env);
 
-      let result;
-      if (url.pathname === "/api/add-alert") {
-        result = await handleAddAlert(body, env);
-      } else if (url.pathname === "/api/delete-alert") {
-        result = await handleDeleteAlert(body, env);
-      } else if (url.pathname === "/api/add-company") {
-        result = await handleAddCompany(body, env);
-      } else if (url.pathname === "/api/delete-company") {
-        result = await handleDeleteCompany(body, env);
-      } else if (url.pathname === "/api/fetch-jobs") {
-        result = await handleFetchJobs(body, env);
-      } else if (url.pathname === "/api/mark-applied") {
-        result = await handleMarkApplied(body, env);
-      } else if (url.pathname === "/api/sync-jobs") {
-        result = await handleSyncJobs(body, env);
-      } else {
+      const route = ROUTES[url.pathname];
+      if (!route) {
         return new Response(JSON.stringify({ error: "Not found" }), {
           status: 404,
           headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
         });
       }
+
+      const payload = await verifyGoogleIdentity(body.idToken, env);
+      const role = await resolveRole(payload.email, env);
+      assertRole(role, route.role);
+
+      const result = await route.handler(body, env, payload.email);
 
       return new Response(JSON.stringify(result), {
         status: 200,

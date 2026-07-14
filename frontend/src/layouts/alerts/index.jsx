@@ -16,6 +16,8 @@ import { useAuth } from "context/AuthContext.jsx";
 import { useData } from "context/DataContext.jsx";
 import { callWorker } from "lib/callWorker.js";
 import { parseWorkdayUrl } from "lib/parseWorkdayUrl.js";
+import { getCurrentRole } from "lib/roles.js";
+import { BOOTSTRAP_ADMIN_EMAIL } from "../../config.js";
 import StatusSnackbar from "components/StatusSnackbar.jsx";
 
 const emptyAlertForm = {
@@ -30,8 +32,9 @@ const emptyAlertForm = {
 };
 
 export default function Alerts() {
-  const { idToken, requireSignIn } = useAuth();
-  const { alertsData, reload } = useData();
+  const { idToken, email, requireSignIn } = useAuth();
+  const { alertsData, adminsData, reload } = useData();
+  const canManage = getCurrentRole(email, adminsData, BOOTSTRAP_ADMIN_EMAIL) === "admin";
 
   const [status, setStatus] = useState(null);
   const [form, setForm] = useState(emptyAlertForm);
@@ -166,7 +169,7 @@ export default function Alerts() {
                     variant="gradient"
                     color="dark"
                     fullWidth
-                    sx={{ opacity: idToken ? 1 : 0.6 }}
+                    sx={{ opacity: canManage ? 1 : 0.6 }}
                   >
                     Sync jobs from local watcher
                     <input type="file" accept=".json" hidden onChange={handleSyncJobsFile} />
@@ -188,7 +191,7 @@ export default function Alerts() {
                 {!idToken && (
                   <MDTypography variant="caption" color="text" display="block" mb={1.5}>
                     Anyone can fill this out, but adding it requires signing in with Google
-                    (top-right) as the site owner.
+                    (top-right).
                   </MDTypography>
                 )}
 
