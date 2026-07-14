@@ -16,7 +16,7 @@ import ComplexStatisticsCard from "examples/Cards/StatisticsCards/ComplexStatist
 import { useAuth } from "context/AuthContext.jsx";
 import { useData } from "context/DataContext.jsx";
 import { callWorker } from "lib/callWorker.js";
-import { getCurrentRole } from "lib/roles.js";
+import { isAdmin, requireAdmin } from "lib/roles.js";
 import { BOOTSTRAP_ADMIN_EMAIL } from "../../config.js";
 import StatusSnackbar from "components/StatusSnackbar.jsx";
 import JobRow from "layouts/jobs/components/JobRow.jsx";
@@ -42,9 +42,9 @@ function timeAgo(isoString) {
 }
 
 export default function Jobs() {
-  const { idToken, email, requireSignIn } = useAuth();
+  const { idToken, email } = useAuth();
   const { jobsData, companiesData, applicationsData, adminsData, loading } = useData();
-  const canManage = getCurrentRole(email, adminsData, BOOTSTRAP_ADMIN_EMAIL) === "admin";
+  const canManage = isAdmin(email, adminsData, BOOTSTRAP_ADMIN_EMAIL);
   const [locallyApplied, setLocallyApplied] = useState(readLocalApplied());
   const [activeCompany, setActiveCompany] = useState("all");
   const [fetching, setFetching] = useState(false);
@@ -66,15 +66,23 @@ export default function Jobs() {
     return jobsData.jobs.filter((j) => j.company === activeCompany);
   }, [jobsData, activeCompany]);
 
-  function handleApply(job) {
+  async function handleApply(job) {
     const updated = Array.from(new Set([...locallyApplied, job.id]));
     setLocallyApplied(updated);
     localStorage.setItem(LOCAL_APPLIED_KEY, JSON.stringify(updated));
+
+    if (!idToken) return; // local-only marking for signed-out visitors
+    try {
+      await callWorker("/api/mark-applied", idToken, { jobId: job.id });
+    } catch {
+      // best-effort - the local mark above already succeeded, so the
+      // user's own view stays consistent even if this sync fails.
+    }
   }
 
   async function handleFetchJobs() {
     setFetchStatus(null);
-    if (!requireSignIn(setFetchStatus)) return;
+    if (!requireAdmin({ idToken, email, canManage, setStatus: setFetchStatus })) return;
     setFetching(true);
     try {
       await callWorker("/api/fetch-jobs", idToken, {});

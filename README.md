@@ -47,18 +47,20 @@ frontend/  React (Vite) + Material Dashboard React (MUI-based, Creative
            pages have "Sign in with Google" admin controls - but the
            frontend itself never decides who's allowed to write
            anything; it just calls the Worker and shows the result
-           (role-based UI hiding is cosmetic only).
+           (admin-only UI hiding is cosmetic only).
 
-worker/    A Cloudflare Worker. Verifies the Google ID token it receives,
-           resolves the token's email to a role - either the permanent
-           bootstrap owner (ALLOWED_EMAIL, always role admin) or an entry
-           in admins.json ("admin" or "user") - and only if that role is
-           sufficient for the requested route does it write to the
+worker/    A Cloudflare Worker. Verifies the Google ID token it receives.
+           Any verified sign-in can add its own alerts and mark jobs
+           applied - no approval needed. Everything else (companies,
+           fetch/sync jobs, managing the admin list) requires the email
+           to be an admin - either the permanent bootstrap owner
+           (ALLOWED_EMAIL) or an entry in admins.json (a flat list, no
+           roles). Only once that's confirmed does it write to the
            GitHub repo using a GitHub token stored as a Worker secret (or,
            for "Fetch jobs now", dispatch the scraper workflow via the
            GitHub Actions API). This is the actual security boundary.
-           "admin" can do everything, including managing the admin/user
-           list; "user" can manage alerts and applications only.
+           Deleting an alert also requires owning it, unless you're an
+           admin.
 
 admin/     A local-only CLI, kept as an offline fallback. Uses a hashed
            password in a git-ignored token.txt. Useful if you want to
@@ -119,8 +121,8 @@ npx wrangler login
 
 Edit `worker/wrangler.toml`:
 - `ALLOWED_EMAIL` - the permanent bootstrap admin, e.g. your own email.
-  This account is always role `admin`, even if `admins.json` is missing
-  or empty, so you can't lock yourself out.
+  This account is always an admin, even if `admins.json` is missing or
+  empty, so you can't lock yourself out.
 - `GOOGLE_CLIENT_ID` - paste the client ID from step 1
 - `GITHUB_OWNER` - your GitHub username
 - `GITHUB_REPO` - your repo name
@@ -170,8 +172,9 @@ automatically, so you shouldn't need to edit code for this.
 Once deployed, visit your live site's **Companies** page. Anyone can see
 the watched companies and fill out the add-company form, but submitting
 requires clicking **Sign in with Google** (top-right) and signing in as
-an admin (companies require the `admin` role, not just `user`). Once
-added, every posting from that company shows up on the Jobs page -
+an admin - adding a company is admin-only, unlike alerts, which any
+signed-in Google account can add. Once added, every posting from that
+company shows up on the Jobs page -
 unfiltered, no keyword/location matching yet (that's a deferred
 per-viewer feature; the **Alerts** page still works if you want to use
 it, it's just not wired into the scraper).
@@ -195,21 +198,21 @@ cron schedule is currently commented out in
 `.github/workflows/scrape.yml` - uncomment it (and adjust the interval)
 if you want it to run automatically again.
 
-## Managing admins and users
+## Managing admins
 
-Beyond the permanent bootstrap admin (`ALLOWED_EMAIL` in
-`worker/wrangler.toml`), you can grant others access from the **Admins**
-page - visible to everyone, but the add/remove controls only work when
-signed in as an existing `admin`. Two roles:
-- **admin** - full access: companies, alerts, applications, fetch-jobs,
-  sync-jobs, and managing the admin/user list itself.
-- **user** - can manage alerts and applications only; everything else is
-  read-only.
+Any Google account can sign in and add its own alerts or mark a job
+applied - no approval needed. Beyond that base access, the permanent
+bootstrap admin (`ALLOWED_EMAIL` in `worker/wrangler.toml`) can grant
+others full admin access from the **Admins** page - visible to everyone,
+but the add/remove controls only work when signed in as an existing
+admin. Admins can manage companies, fetch/sync jobs, and the admin list
+itself, in addition to everything a plain signed-in account can already
+do.
 
-The list lives in `frontend/public/data/admins.json`, written through
-the Worker the same way as the other data files (a git-tracked, auditable
-commit per change). There's no "edit role" action - change someone's role
-by removing and re-adding them.
+The list lives in `frontend/public/data/admins.json` (just a flat list
+of emails, no roles), written through the Worker the same way as the
+other data files (a git-tracked, auditable commit per change). There's
+no "edit" action - remove and re-add if needed.
 
 ## Offline / local admin fallback
 

@@ -1,19 +1,19 @@
 /**
  * Agastya admin worker.
  *
- * Verifies a Google ID token server-side, resolves the token's email to a
- * role (admin or user) - either the permanent bootstrap owner (env.
- * ALLOWED_EMAIL, always role admin) or an entry in admins.json - and
- * only if the resolved role meets the route's required role does it write
- * changes to data files in the GitHub repo via the GitHub Contents API,
- * or (for /api/fetch-jobs) trigger the scrape.yml GitHub Actions workflow
- * via the Actions API.
+ * Verifies a Google ID token server-side. Any verified sign-in (real
+ * token, correct audience, verified email, not expired) can add its own
+ * alerts and mark jobs applied - no roster entry required. Managing
+ * companies, triggering scrapes, syncing jobs, and managing the admin
+ * roster itself require the email to be an admin: either the permanent
+ * bootstrap owner (env.ALLOWED_EMAIL) or an entry in admins.json. Only
+ * once that's confirmed does the worker write to data files in the
+ * GitHub repo via the GitHub Contents API, or (for /api/fetch-jobs)
+ * trigger the scrape.yml GitHub Actions workflow via the Actions API.
  *
- * Roles: "admin" can do everything, including managing the admin/user
- * list itself (add-admin/remove-admin). "user" can manage alerts and
- * applications (add-alert, delete-alert, mark-applied) only - companies,
- * fetch-jobs, sync-jobs, and admin-list management all require "admin".
- * See the ROUTES table below for the exact mapping.
+ * Deleting an alert additionally requires owning it (or being an admin,
+ * who can delete any alert) - see handleDeleteAlert. See the ROUTES
+ * table below for which routes are admin-only.
  *
  * The GitHub token and allowed email live in Worker secrets/vars, never
  * in the frontend bundle, so nothing sensitive is ever shipped to the
@@ -27,7 +27,7 @@
  *
  * Required Worker vars (in wrangler.toml or the dashboard):
  *   ALLOWED_EMAIL     - e.g. abhishek.wadmare@gmail.com - the permanent
- *                       bootstrap admin, always role admin regardless of
+ *                       bootstrap admin, always an admin regardless of
  *                       admins.json, so this account can never be locked
  *                       out even if admins.json is missing or corrupted
  *   GOOGLE_CLIENT_ID  - your OAuth client id, used to check token audience
@@ -67,26 +67,23 @@ async function verifyGoogleIdentity(idToken, env) {
   return payload;
 }
 
-const ROLE_RANK = { user: 1, admin: 2 };
-
-async function resolveRole(email, env) {
+async function isAdmin(email, env) {
   if (email === env.ALLOWED_EMAIL) {
-    return "admin";
+    return true;
   }
   try {
     const { content } = await githubGetFile(`${DATA_PATH_PREFIX}/admins.json`, env);
-    const entry = (content.admins || []).find((a) => a.email === email);
-    return entry ? entry.role : null;
+    return (content.admins || []).some((a) => a.email === email);
   } catch {
     // admins.json missing/corrupt - fail closed for everyone except the
     // bootstrap owner, who's already handled above.
-    return null;
+    return false;
   }
 }
 
-function assertRole(role, requiredRole) {
-  if (!role || ROLE_RANK[role] < ROLE_RANK[requiredRole]) {
-    throw new Error(`Forbidden: this action requires role '${requiredRole}' or higher`);
+async function requireAdmin(email, env) {
+  if (!(await isAdmin(email, env))) {
+    throw new Error("Forbidden: this action requires admin access");
   }
 }
 
@@ -144,6 +141,7 @@ async function handleAddAlert(payload, env, actorEmail) {
   const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/alerts.json`, env);
   const newAlert = {
     ...payload.alert,
+    owner: actorEmail,
     created_at: new Date().toISOString(),
   };
   if (content.alerts.some((a) => a.id === newAlert.id)) {
@@ -162,11 +160,16 @@ async function handleAddAlert(payload, env, actorEmail) {
 
 async function handleDeleteAlert(payload, env, actorEmail) {
   const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/alerts.json`, env);
-  const before = content.alerts.length;
-  content.alerts = content.alerts.filter((a) => a.id !== payload.id);
-  if (content.alerts.length === before) {
+  const target = content.alerts.find((a) => a.id === payload.id);
+  if (!target) {
     throw new Error(`No alert found with id '${payload.id}'`);
   }
+  // Alerts seeded before ownership existed have no `owner` - only an
+  // admin can delete those until they're recreated with one.
+  if (target.owner !== actorEmail && !(await isAdmin(actorEmail, env))) {
+    throw new Error("You can only delete your own alerts");
+  }
+  content.alerts = content.alerts.filter((a) => a.id !== payload.id);
   await githubPutFile(
     `${DATA_PATH_PREFIX}/alerts.json`,
     content,
@@ -297,6 +300,7 @@ async function handleMarkApplied(payload, env, actorEmail) {
     apply_url: job.apply_url,
     applied_at: new Date().toISOString(),
     status: "applied",
+    marked_by: actorEmail,
   });
 
   await githubPutFile(
@@ -311,7 +315,6 @@ async function handleMarkApplied(payload, env, actorEmail) {
 
 async function handleAddAdmin(payload, env, actorEmail) {
   const email = (payload.email || "").trim().toLowerCase();
-  const role = payload.role === "admin" ? "admin" : "user";
 
   if (!email || !email.includes("@")) {
     throw new Error("A valid email is required");
@@ -322,16 +325,16 @@ async function handleAddAdmin(payload, env, actorEmail) {
 
   const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/admins.json`, env);
   if (content.admins.some((a) => a.email === email)) {
-    throw new Error(`${email} is already in the admin list`);
+    throw new Error(`${email} is already an admin`);
   }
 
-  const entry = { email, role, added_at: new Date().toISOString(), added_by: actorEmail };
+  const entry = { email, added_at: new Date().toISOString(), added_by: actorEmail };
   content.admins.push(entry);
   await githubPutFile(
     `${DATA_PATH_PREFIX}/admins.json`,
     content,
     sha,
-    `admin: add ${role} ${email} (by ${actorEmail})`,
+    `admin: add ${email} (by ${actorEmail})`,
     env
   );
   return { ok: true, admin: entry };
@@ -347,9 +350,8 @@ async function handleRemoveAdmin(payload, env, actorEmail) {
   }
 
   const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/admins.json`, env);
-  const target = content.admins.find((a) => a.email === email);
-  if (!target) {
-    throw new Error(`No admin/user found with email '${email}'`);
+  if (!content.admins.some((a) => a.email === email)) {
+    throw new Error(`No admin found with email '${email}'`);
   }
 
   content.admins = content.admins.filter((a) => a.email !== email);
@@ -357,25 +359,22 @@ async function handleRemoveAdmin(payload, env, actorEmail) {
     `${DATA_PATH_PREFIX}/admins.json`,
     content,
     sha,
-    `admin: remove ${target.role} ${email} (by ${actorEmail})`,
+    `admin: remove ${email} (by ${actorEmail})`,
     env
   );
   return { ok: true };
 }
 
-// The "-admin" suffix in these route names refers to the admin/user list
-// feature, not that every entry added is role "admin" - both routes
-// manage entries of either role.
 const ROUTES = {
-  "/api/add-alert": { handler: handleAddAlert, role: "user" },
-  "/api/delete-alert": { handler: handleDeleteAlert, role: "user" },
-  "/api/mark-applied": { handler: handleMarkApplied, role: "user" },
-  "/api/add-company": { handler: handleAddCompany, role: "admin" },
-  "/api/delete-company": { handler: handleDeleteCompany, role: "admin" },
-  "/api/fetch-jobs": { handler: handleFetchJobs, role: "admin" },
-  "/api/sync-jobs": { handler: handleSyncJobs, role: "admin" },
-  "/api/add-admin": { handler: handleAddAdmin, role: "admin" },
-  "/api/remove-admin": { handler: handleRemoveAdmin, role: "admin" },
+  "/api/add-alert": { handler: handleAddAlert, adminOnly: false },
+  "/api/delete-alert": { handler: handleDeleteAlert, adminOnly: false },
+  "/api/mark-applied": { handler: handleMarkApplied, adminOnly: false },
+  "/api/add-company": { handler: handleAddCompany, adminOnly: true },
+  "/api/delete-company": { handler: handleDeleteCompany, adminOnly: true },
+  "/api/fetch-jobs": { handler: handleFetchJobs, adminOnly: true },
+  "/api/sync-jobs": { handler: handleSyncJobs, adminOnly: true },
+  "/api/add-admin": { handler: handleAddAdmin, adminOnly: true },
+  "/api/remove-admin": { handler: handleRemoveAdmin, adminOnly: true },
 };
 
 export default {
@@ -410,8 +409,9 @@ export default {
       }
 
       const payload = await verifyGoogleIdentity(body.idToken, env);
-      const role = await resolveRole(payload.email, env);
-      assertRole(role, route.role);
+      if (route.adminOnly) {
+        await requireAdmin(payload.email, env);
+      }
 
       const result = await route.handler(body, env, payload.email);
 

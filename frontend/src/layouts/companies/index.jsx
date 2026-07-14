@@ -16,7 +16,7 @@ import { useAuth } from "context/AuthContext.jsx";
 import { useData } from "context/DataContext.jsx";
 import { callWorker } from "lib/callWorker.js";
 import { parseWorkdayUrl } from "lib/parseWorkdayUrl.js";
-import { getCurrentRole } from "lib/roles.js";
+import { isAdmin, requireAdmin } from "lib/roles.js";
 import { BOOTSTRAP_ADMIN_EMAIL } from "../../config.js";
 import StatusSnackbar from "components/StatusSnackbar.jsx";
 
@@ -28,9 +28,9 @@ const emptyCompanyForm = {
 };
 
 export default function Companies() {
-  const { idToken, email, requireSignIn } = useAuth();
+  const { idToken, email } = useAuth();
   const { companiesData, adminsData, reload } = useData();
-  const canManage = getCurrentRole(email, adminsData, BOOTSTRAP_ADMIN_EMAIL) === "admin";
+  const canManage = isAdmin(email, adminsData, BOOTSTRAP_ADMIN_EMAIL);
 
   const [status, setStatus] = useState(null);
   const [form, setForm] = useState(emptyCompanyForm);
@@ -61,7 +61,7 @@ export default function Companies() {
   async function handleAddCompany(e) {
     e.preventDefault();
     setStatus(null);
-    if (!requireSignIn(setStatus)) return;
+    if (!requireAdmin({ idToken, email, canManage, setStatus })) return;
     try {
       const { company } = await callWorker("/api/add-company", idToken, {
         company: {
@@ -81,7 +81,7 @@ export default function Companies() {
 
   async function handleDeleteCompany(id) {
     setStatus(null);
-    if (!requireSignIn(setStatus)) return;
+    if (!requireAdmin({ idToken, email, canManage, setStatus })) return;
     try {
       await callWorker("/api/delete-company", idToken, { id });
       setStatus({ type: "success", text: `Deleted '${id}'.` });

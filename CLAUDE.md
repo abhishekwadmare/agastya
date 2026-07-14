@@ -46,35 +46,36 @@ frontend/  React + Vite, deployed to GitHub Pages via GitHub Actions.
            pages. Multi-page via HashRouter (Jobs / Companies / Alerts /
            Admins / Applications / About), not a single page anymore.
            Reads the JSON files in public/data/. The Companies, Alerts,
-           and Admins pages have Google Sign-In admin controls, but the
-           frontend NEVER decides who's authorized - it just calls the
-           Worker and shows the result. Any role-based hide/disable in
-           the UI (e.g. `getCurrentRole` in `frontend/src/lib/roles.js`)
-           is cosmetic only, purely for UX; the Worker enforces the real
-           gate regardless of what the UI shows.
+           Jobs, and Admins pages have Google Sign-In admin controls, but
+           the frontend NEVER decides who's authorized - it just calls
+           the Worker and shows the result. Any admin-only hide/disable
+           in the UI (e.g. `isAdmin`/`requireAdmin` in
+           `frontend/src/lib/roles.js`) is cosmetic only, purely for UX;
+           the Worker enforces the real gate regardless of what the UI
+           shows.
 
 worker/    Cloudflare Worker. This is the actual security boundary.
            Verifies the Google ID token server-side (checks it against
-           Google's tokeninfo endpoint, confirms aud/email_verified/exp),
-           then resolves the token's email to a role: the permanent
-           bootstrap owner (env.ALLOWED_EMAIL, always role "admin" - can
-           never be locked out even if admins.json is missing or
-           corrupted) or an entry in frontend/public/data/admins.json
-           ("admin" or "user"). Only if the resolved role meets the
-           requested route's required role (see the ROUTES table in
-           worker/src/index.js) does it write to the GitHub repo via the
+           Google's tokeninfo endpoint, confirms aud/email_verified/exp).
+           Any verified sign-in can add its own alerts and mark jobs
+           applied - no roster check at all for those. Everything else
+           (companies, fetch-jobs, sync-jobs, and managing the admin
+           list itself) requires the email to be an admin: the permanent
+           bootstrap owner (env.ALLOWED_EMAIL - can never be locked out
+           even if admins.json is missing or corrupted) or an entry in
+           frontend/public/data/admins.json (a flat roster, no roles -
+           being listed means admin, full stop). See the ROUTES table in
+           worker/src/index.js for the exact adminOnly mapping. Deleting
+           an alert additionally requires owning it (an `owner` field
+           stamped on creation) unless you're an admin, who can delete
+           any alert. Admin-gated writes go to the GitHub repo via the
            Contents API, using a GitHub token stored as a Worker secret -
            or, for /api/fetch-jobs, dispatches scrape.yml via the GitHub
-           Actions API using that same token. "admin" can do everything,
-           including managing the admin/user list itself
-           (/api/add-admin, /api/remove-admin); "user" can only manage
-           alerts and applications (add-alert, delete-alert,
-           mark-applied) - companies, fetch-jobs, and sync-jobs all
-           require "admin". That GitHub token needs BOTH Contents:
-           read/write AND Actions: read/write scopes now; it originally
-           only had Contents, so fetch-jobs will 403 until the scope is
-           widened (this bit Abhi once already - check before assuming
-           it's set).
+           Actions API using that same token. That GitHub token needs
+           BOTH Contents: read/write AND Actions: read/write scopes now;
+           it originally only had Contents, so fetch-jobs will 403 until
+           the scope is widened (this bit Abhi once already - check
+           before assuming it's set).
 
 admin/     Local-only CLI, kept as an offline fallback for when Abhi
            doesn't want to go through the browser. Uses a hashed
@@ -145,22 +146,34 @@ checking with Abhi - it's intentionally kept for that later feature.
 - **Auth: Google Sign-In**, verified server-side in the Worker. Not a
   password. This was an explicit upgrade from an earlier
   local-token-only design.
-- **Role-based admin: two roles, "admin" and "user", not per-resource
-  permissions.** "admin" = full access, including managing the
-  admin/user list itself; "user" = alerts + applications only, read-only
-  elsewhere. Abhi (`abhishek.wadmare@gmail.com`, `ALLOWED_EMAIL` in
-  `worker/wrangler.toml`) is a permanent bootstrap admin outside
-  `admins.json`, specifically so he can never be locked out even if
-  `admins.json` is missing, corrupted, or emptied - this was a
-  deliberate resilience decision, not an oversight; don't "clean it up"
-  by moving him into `admins.json` too. Additional admins/users are
+- **Auth model: any signed-in Google account gets base access; a flat
+  admin roster gates everything else.** No per-resource permission
+  matrix, and no separate "user" role either (tried in an earlier
+  iteration, then deliberately simplified - see below). Any verified
+  Google sign-in can add its own alerts and mark jobs applied, no roster
+  entry needed. Managing companies, triggering/syncing scrapes, and
+  managing the admin list itself require being an admin: either Abhi
+  (`abhishek.wadmare@gmail.com`, `ALLOWED_EMAIL` in
+  `worker/wrangler.toml`), a permanent bootstrap admin kept outside
+  `admins.json` specifically so he can never be locked out even if
+  `admins.json` is missing, corrupted, or emptied - don't "clean it up"
+  by moving him into `admins.json` too - or an email listed in
+  `admins.json`, a flat array with no role field (being listed means
+  admin, full stop). Deleting an alert requires owning it (or being
+  admin) - each alert gets an `owner` field stamped on creation; alerts
+  seeded before that existed have no owner and are admin-only-deletable
+  until recreated. We *did* originally ship a two-role "admin"/"user"
+  roster (`user` = alerts + applications only, gated by being listed),
+  but once any signed-in account could already do everything a "user"
+  role granted, that tier became dead weight and actively misleading UI
+  copy - so it was removed rather than kept around unused. Admins are
   managed via the Admins page (`frontend/src/layouts/admins/`), which
   writes to `admins.json` through the same GitHub Contents API pattern
   as companies/alerts (chosen over a Cloudflare KV/D1 binding to keep
   the single-source-of-truth-in-`frontend/public/data/` rule intact).
   The separate local `admin/admin_cli.py` (shared-password auth, no
   email identity) was deliberately left untouched - it's a distinct
-  offline mechanism, not part of the role system.
+  offline mechanism, not part of this auth model.
 - **UI framework: Material Dashboard React (Creative Tim), fully
   adopted** - MUI v5 component library, theme system, and layout shell
   (Sidenav/Navbar/DashboardLayout), ported onto Vite (the template
@@ -302,9 +315,8 @@ mainly pays off with multiple contributors).
 
 - Auto-parse the Workday URL on paste instead of requiring a button
   click (was requested, not yet implemented)
-- No "edit" for alerts, companies, or admins/users - only add/delete.
-  Editing (including changing someone's role) currently means
-  delete + re-add.
+- No "edit" for alerts, companies, or admins - only add/delete. Editing
+  currently means delete + re-add.
 - Telegram notifications are wired but need TELEGRAM_BOT_TOKEN /
   TELEGRAM_CHAT_ID secrets set in GitHub Actions to actually fire -
   check whether Abhi has done this yet before assuming it's live
