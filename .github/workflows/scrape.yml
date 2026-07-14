@@ -5,25 +5,17 @@ on:
   #   - cron: "0 */4 * * *"  # every 4 hours  -- paused 2026-07-04, see commit msg
   workflow_dispatch: {}     # lets you trigger it manually from the Actions tab
 
-permissions:
-  contents: write
-  actions: write
-
 jobs:
   scrape:
     runs-on: ubuntu-latest
     steps:
-      # Checkout with the admin PAT (not the default token) so this
-      # workflow's later `git push` is authenticated as the repo admin,
-      # not as github-actions[bot] - main has branch protection requiring
-      # a PR, and only the repo-admin identity is on the bypass list.
-      # Same PAT already used by the Cloudflare Worker, stored here too
-      # as a separate GitHub Actions secret (Settings > Secrets and
-      # variables > Actions > ADMIN_PAT).
+      # Plain checkout - the scraper only pulls its own source code from
+      # here now. It no longer commits/pushes anything (jobs.json lives
+      # in R2, pushed via the Worker's /api/scraper/sync-jobs), so the
+      # ADMIN_PAT-authenticated checkout this used to need is gone - see
+      # issue #7.
       - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.ADMIN_PAT }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -35,6 +27,8 @@ jobs:
 
       - name: Run scraper
         id: scrape
+        env:
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
         run: python scraper/scrape.py
 
       - name: Send Telegram notifications for new jobs
@@ -43,24 +37,3 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python scraper/notify.py
-
-      - name: Commit updated job data
-        run: |
-          git config user.name "agastya-bot"
-          git config user.email "agastya-bot@users.noreply.github.com"
-          git add frontend/public/data/jobs.json
-          git diff --quiet --cached || git commit -m "chore: update job listings [automated]"
-          git push
-
-      # A push made with this workflow's own token does NOT trigger
-      # other workflows (GitHub's built-in loop-prevention) - so
-      # deploy.yml never rebuilds Pages on its own. Dispatch it
-      # explicitly, only when something actually changed.
-      - name: Trigger a Pages rebuild
-        if: steps.scrape.outputs.new_jobs_count != '0'
-        run: |
-          curl -sf -X POST \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/dispatches" \
-            -d '{"ref":"${{ github.ref_name }}"}'

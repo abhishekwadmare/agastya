@@ -31,13 +31,19 @@ went through this decision carefully.
 ```
 scraper/   Python. Runs on GitHub Actions cron (every 4h, currently
            paused - see git log) or on demand via the Jobs page's
-           "Fetch jobs now" button (admin only). Polls each watched
-           company's Workday CXS endpoint (companies.json, paginated -
-           see below), writes new jobs into frontend/public/data/jobs.json
-           unfiltered, commits back to the repo, then explicitly
-           dispatches deploy.yml itself (see "Known quirks" below - this
-           is not optional). A separate local_watch.py runs the same
-           logic continuously on Abhi's own machine instead.
+           "Fetch jobs now" button (admin only). Fetches the current
+           companies/jobs lists from the Worker's public GET /api/companies
+           and GET /api/jobs (R2-backed, not local files - see issue #7),
+           polls each watched company's Workday CXS endpoint (paginated -
+           see core.py), and POSTs newly found jobs to
+           POST /api/scraper/sync-jobs, authenticated with a shared
+           secret (SCRAPER_API_KEY) since GitHub Actions can't do an
+           interactive Google sign-in. No git commit, no Pages rebuild
+           needed - the frontend fetches jobs/companies from the Worker
+           at runtime. A separate local_watch.py runs the same polling
+           logic continuously on Abhi's own machine, writing to a local
+           file and syncing via the admin-triggered /api/sync-jobs
+           instead.
 
 frontend/  React + Vite, deployed to GitHub Pages via GitHub Actions.
            UI is built on Material Dashboard React (Creative Tim, MUI-
@@ -64,18 +70,26 @@ worker/    Cloudflare Worker. This is the actual security boundary.
            bootstrap owner (env.ALLOWED_EMAIL - can never be locked out
            even if admins.json is missing or corrupted) or an entry in
            frontend/public/data/admins.json (a flat roster, no roles -
-           being listed means admin, full stop). See the ROUTES table in
-           worker/src/index.js for the exact adminOnly mapping. Deleting
-           an alert additionally requires owning it (an `owner` field
-           stamped on creation) unless you're an admin, who can delete
-           any alert. Admin-gated writes go to the GitHub repo via the
-           Contents API, using a GitHub token stored as a Worker secret -
-           or, for /api/fetch-jobs, dispatches scrape.yml via the GitHub
-           Actions API using that same token. That GitHub token needs
-           BOTH Contents: read/write AND Actions: read/write scopes now;
-           it originally only had Contents, so fetch-jobs will 403 until
+           being listed means admin, full stop). See the POST_ROUTES
+           table in worker/src/index.js for the exact adminOnly mapping.
+           Deleting an alert additionally requires owning it (an `owner`
+           field stamped on creation) unless you're an admin, who can
+           delete any alert. jobs.json/companies.json live in the
+           DATA_BUCKET R2 binding (see r2GetJson/r2PutJson), served
+           publicly with no auth via GET /api/jobs and GET /api/companies
+           - GET_ROUTES in worker/src/index.js. alerts.json,
+           applications.json, and admins.json still go through the
+           GitHub Contents API (githubGetFile/githubPutFile), using a
+           GitHub token stored as a Worker secret - or, for
+           /api/fetch-jobs, dispatches scrape.yml via the GitHub Actions
+           API using that same token. That GitHub token needs BOTH
+           Contents: read/write AND Actions: read/write scopes now; it
+           originally only had Contents, so fetch-jobs will 403 until
            the scope is widened (this bit Abhi once already - check
-           before assuming it's set).
+           before assuming it's set). POST /api/scraper/sync-jobs is a
+           separate, non-Google-token route the scraper itself calls,
+           authenticated by a shared secret (SCRAPER_API_KEY, also set
+           as a GitHub Actions secret of the same name).
 
 admin/     Local-only CLI, kept as an offline fallback for when Abhi
            doesn't want to go through the browser. Uses a hashed
@@ -92,11 +106,20 @@ write-token and the identity check server-side. Don't reintroduce
 client-side secrets when adding features - route writes through the
 Worker.
 
-**Single source of truth for data:** all JSON data (`jobs.json`,
-`alerts.json`, `companies.json`, `applications.json`, `admins.json`)
-lives in ONE place: `frontend/public/data/`. We deliberately removed an
-earlier separate `data/` folder and its sync step - don't reintroduce a
-second copy. `admins.json` deliberately does NOT duplicate the bootstrap
+**Single source of truth for data - now split between R2 and git,
+deliberately.** `jobs.json` and `companies.json` moved to the
+`agastya-data` R2 bucket (issue #7) - they're written frequently (every
+scrape) and were forcing a git commit + Pages rebuild just to publish a
+JSON blob, for data with no real audit-trail value. `alerts.json`,
+`applications.json`, and `admins.json` stay in git, in
+`frontend/public/data/` (read/written via the Worker's GitHub Contents
+API helpers) - `admins.json` in particular stays there **permanently**,
+even once alerts/applications eventually move to R2 too, because admin-
+roster changes are rare and security-relevant: git commit history is a
+free audit log of who has admin access and when that changed, which R2
+doesn't give you for free. Don't move `admins.json` to R2 "for
+consistency" - that's a real feature (the audit trail) it would lose for
+no benefit. `admins.json` deliberately does NOT duplicate the bootstrap
 owner (`ALLOWED_EMAIL` in `worker/wrangler.toml`) - that stays the sole
 source of truth for the bootstrap account specifically, to avoid a
 two-sources-of-truth conflict if they ever disagreed.
@@ -112,19 +135,20 @@ checking with Abhi - it's intentionally kept for that later feature.
 
 ## Known quirks (already hit and fixed once - don't rediscover these)
 
-- **GitHub's loop-prevention silently broke the deploy pipeline.** A
-  commit pushed using a workflow's own auto-generated GITHUB_TOKEN does
-  NOT trigger other workflows, even when `on.push.paths` matches. This
-  meant scrape.yml's commit to jobs.json never triggered deploy.yml -
-  jobs were correctly landing in the repo but the live site kept
-  serving a stale build indefinitely. Confirmed via Actions run
-  history (last deploy predated the last scrape). Fixed by scrape.yml
-  explicitly dispatching deploy.yml itself via the Actions API
-  (requires `permissions: actions: write` in scrape.yml, added). If a
-  future workflow commits data and expects Pages to reflect it
-  automatically, it needs this same explicit dispatch step - don't
-  assume `on.push.paths` alone is enough when the push comes from
-  inside another workflow.
+- **GitHub's loop-prevention used to silently break the deploy
+  pipeline** (no longer applicable - resolved by removing the git
+  commit entirely, not by working around it). A commit pushed using a
+  workflow's own auto-generated GITHUB_TOKEN does NOT trigger other
+  workflows, even when `on.push.paths` matches - this meant
+  `scrape.yml`'s old commit-to-`jobs.json` step never triggered
+  `deploy.yml` on its own, and it had to explicitly dispatch it via the
+  Actions API. Once `jobs.json` moved to R2 (issue #7), `scrape.yml`
+  stopped committing anything at all, so this workaround (and the loop-
+  prevention quirk itself) no longer applies to this workflow. Worth
+  remembering the underlying GitHub behavior if some *other* future
+  workflow ever needs to commit data and expects Pages to pick it up
+  automatically - `on.push.paths` alone isn't enough when the push comes
+  from inside another workflow's own token.
 - **Google Identity Services button intermittently missing.** The GSI
   script tag loads `async defer`; the original code checked for
   `window.google` exactly once, synchronously, on mount, with no
@@ -169,11 +193,31 @@ checking with Abhi - it's intentionally kept for that later feature.
   copy - so it was removed rather than kept around unused. Admins are
   managed via the Admins page (`frontend/src/layouts/admins/`), which
   writes to `admins.json` through the same GitHub Contents API pattern
-  as companies/alerts (chosen over a Cloudflare KV/D1 binding to keep
-  the single-source-of-truth-in-`frontend/public/data/` rule intact).
-  The separate local `admin/admin_cli.py` (shared-password auth, no
-  email identity) was deliberately left untouched - it's a distinct
-  offline mechanism, not part of this auth model.
+  alerts/applications still use (chosen over a Cloudflare KV/D1 binding
+  to keep it git-auditable - see the R2 migration bullet below for why
+  this stays true for `admins.json` specifically even as other data
+  files move off git). The separate local `admin/admin_cli.py`
+  (shared-password auth, no email identity) was deliberately left
+  untouched - it's a distinct offline mechanism, not part of this auth
+  model.
+- **Data storage split: jobs/companies in R2, alerts/applications/
+  admins still in git (issue #7).** `jobs.json` and `companies.json`
+  write on every scrape and have no real audit-trail value, so they
+  moved to a Cloudflare R2 bucket (`agastya-data`, bound to the Worker
+  as `DATA_BUCKET`) - served publicly via `GET /api/jobs`/
+  `GET /api/companies`, no auth. This also let `scrape.yml` drop its
+  git-commit-then-dispatch-deploy.yml dance entirely (see "Known
+  quirks"), since the frontend now reads jobs/companies from the Worker
+  at runtime instead of a git-committed static file. The scraper
+  authenticates its writes with a shared secret (`SCRAPER_API_KEY`) via
+  `POST /api/scraper/sync-jobs`, since GitHub Actions can't do an
+  interactive Google sign-in. `alerts.json`/`applications.json` are
+  planned to move to R2 too (with owner-based filtering, since #5 made
+  them genuinely multi-user and this repo is public) but haven't yet -
+  check `worker/src/index.js` for whether `handleAddAlert`/
+  `handleMarkApplied` still use `githubGetFile`/`githubPutFile` before
+  assuming this has landed. `admins.json` is the one file that's
+  staying in git permanently regardless - see the bullet above.
 - **UI framework: Material Dashboard React (Creative Tim), fully
   adopted** - MUI v5 component library, theme system, and layout shell
   (Sidenav/Navbar/DashboardLayout), ported onto Vite (the template
@@ -248,23 +292,26 @@ copy change) skips the Issue - just branch + PR directly.
 Branch protection on `main` is enabled (require PR before merge,
 require the CI check) with a **bypass list scoped to "Repository
 admin" only** - this is deliberate, not a hole in the rule. The app's
-own automated data writes commit directly to `main` outside any PR:
-`scrape.yml`'s job-listing commit and every Worker admin-panel write
-(add/delete-alert, add/delete-company, mark-applied, sync-jobs). A
-"no bypass for anyone" rule would have blocked all of those identically
-to a human's direct push - GitHub can't tell "routine automated data
-write" apart from "code change that skipped review" on its own. The
-Worker's GitHub token and `admin/admin_cli.py`'s local git access
-already authenticate as the repo admin, so the bypass list covers them
-for free; `scrape.yml` was updated to check out with a stored PAT
-(`secrets.ADMIN_PAT`, a GitHub Actions repo secret - separate store
-from the same-value Cloudflare Worker secret) instead of its default
-token, specifically so its push is also attributed to an admin-bypass-
-eligible identity rather than `github-actions[bot]`. Branch protection
-here enforces discipline for *code* changes; it is not, and can't be, a
-hard technical lock on every write to `main` given this architecture -
-don't try to tighten it further without re-checking this reasoning
-first.
+own automated data writes still commit directly to `main` outside any
+PR, via the GitHub Contents API: alerts/applications writes
+(add/delete-alert, mark-applied) and admin-roster writes (add-admin,
+remove-admin). A "no bypass for anyone" rule would have blocked those
+identically to a human's direct push - GitHub can't tell "routine
+automated data write" apart from "code change that skipped review" on
+its own. The Worker's GitHub token (and `admin/admin_cli.py`'s local
+git access) already authenticates as the repo admin, so the bypass list
+covers these for free. `jobs.json`/`companies.json` writes (scraper
+sync, add/delete-company) no longer touch git at all as of issue #7 -
+they're R2-backed now, so `scrape.yml` dropped its old
+`secrets.ADMIN_PAT`-authenticated checkout + `git push` entirely (it
+used to need an admin-bypass-eligible identity for that push; it
+doesn't push anything now). `ADMIN_PAT`/the Worker's `GITHUB_TOKEN` are
+still the same underlying PAT, still needed for the Contents API writes
+above and for dispatching `scrape.yml` via the Actions API. Branch
+protection here enforces discipline for *code* changes; it is not, and
+can't be, a hard technical lock on every write to `main` given this
+architecture - don't try to tighten it further without re-checking this
+reasoning first.
 
 One real limitation: Claude Code can create and push branches via git
 directly, but can't open the actual Pull Request without `gh` CLI auth
@@ -287,9 +334,13 @@ mainly pays off with multiple contributors).
 - GitHub Pages deployed and working: abhishekwadmare.github.io/agastya/
 - Google OAuth client created and wired in
 - Cloudflare Worker deployed (agastya-admin.abhishekwadmare.workers.dev)
-  and confirmed working end-to-end: sign-in -> add company -> commit
-  appears in repo -> Fetch jobs now -> scrape.yml runs -> deploy.yml
-  rebuilds Pages -> live site shows real postings (222 from Red Hat)
+  and confirmed working end-to-end (originally: sign-in -> add company
+  -> commit appears in repo -> Fetch jobs now -> scrape.yml runs ->
+  deploy.yml rebuilds Pages -> live site shows real postings, 222 from
+  Red Hat). Since issue #7, add-company/Fetch-jobs no longer touch git
+  or trigger a Pages rebuild at all - they write straight to the
+  `agastya-data` R2 bucket, which the live site reads at runtime via
+  `GET /api/companies`/`GET /api/jobs`
 - Known-good example company/alert values (Red Hat): tenant=`redhat`,
   host=`wd5`, site=`jobs` - useful as a reference for testing, since we
   hit and fixed a real bug here (site field was getting a full URL

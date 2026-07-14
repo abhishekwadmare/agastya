@@ -28,26 +28,28 @@ owner grant others limited (user) or full (admin) access.
 ## Architecture
 
 ```
-scraper/   Python. Polls every company in companies.json's public
-           Workday JSON API (paginated - fetches everything, not just
-           the first page), writes ALL postings into
-           frontend/public/data/jobs.json unfiltered, commits the
-           change, then dispatches deploy.yml itself so GitHub Pages
-           rebuilds with the new data (a plain push from this workflow
-           doesn't trigger other workflows on its own - see "Known
-           quirks" below). Runs via GitHub Actions cron (currently
-           paused) or on demand via the Jobs page's "Fetch jobs now"
-           button.
+scraper/   Python. Polls every company's public Workday JSON API
+           (paginated - fetches everything, not just the first page),
+           fetching the current company/job lists from the Worker
+           (GET /api/companies, GET /api/jobs - R2-backed, not local
+           files) and POSTing newly found postings to
+           POST /api/scraper/sync-jobs, authenticated with a shared
+           secret since GitHub Actions can't do an interactive Google
+           sign-in. No git commit, no Pages rebuild needed - the
+           frontend reads jobs/companies from the Worker at runtime.
+           Runs via GitHub Actions cron (currently paused) or on demand
+           via the Jobs page's "Fetch jobs now" button.
 
 frontend/  React (Vite) + Material Dashboard React (MUI-based, Creative
            Tim), deployed to GitHub Pages. Multi-page - Jobs, Companies,
            Alerts, Admins, Applications, About - via HashRouter (no
-           server-side routing needed on static hosting). Reads the JSON
-           files and displays them. The Companies, Alerts, and Admins
-           pages have "Sign in with Google" admin controls - but the
-           frontend itself never decides who's allowed to write
-           anything; it just calls the Worker and shows the result
-           (admin-only UI hiding is cosmetic only).
+           server-side routing needed on static hosting). Jobs/Companies
+           are fetched live from the Worker; Alerts/Applications/Admins
+           are still fetched as static JSON files. The Companies,
+           Alerts, and Admins pages have "Sign in with Google" admin
+           controls - but the frontend itself never decides who's
+           allowed to write anything; it just calls the Worker and shows
+           the result (admin-only UI hiding is cosmetic only).
 
 worker/    A Cloudflare Worker. Verifies the Google ID token it receives.
            Any verified sign-in can add its own alerts and mark jobs
@@ -55,12 +57,16 @@ worker/    A Cloudflare Worker. Verifies the Google ID token it receives.
            fetch/sync jobs, managing the admin list) requires the email
            to be an admin - either the permanent bootstrap owner
            (ALLOWED_EMAIL) or an entry in admins.json (a flat list, no
-           roles). Only once that's confirmed does it write to the
-           GitHub repo using a GitHub token stored as a Worker secret (or,
-           for "Fetch jobs now", dispatch the scraper workflow via the
-           GitHub Actions API). This is the actual security boundary.
+           roles). jobs.json/companies.json live in an R2 bucket bound to
+           the Worker, served publicly with no auth via GET /api/jobs and
+           GET /api/companies. Everything else still writes to the
+           GitHub repo using a GitHub token stored as a Worker secret
+           (or, for "Fetch jobs now", dispatches the scraper workflow via
+           the GitHub Actions API). This is the actual security boundary.
            Deleting an alert also requires owning it, unless you're an
-           admin.
+           admin. POST /api/scraper/sync-jobs is a separate route the
+           scraper itself uses, authenticated by a shared secret instead
+           of a Google token.
 
 admin/     A local-only CLI, kept as an offline fallback. Uses a hashed
            password in a git-ignored token.txt. Useful if you want to
@@ -81,10 +87,11 @@ unfiltered.
 **Known quirks worth knowing before you debug them:**
 - GitHub Actions has a built-in loop-prevention rule: a commit pushed
   using a workflow's own auto-generated token does not trigger other
-  workflows, even if their `on.push.paths` would otherwise match.
-  `scrape.yml` works around this by explicitly dispatching `deploy.yml`
-  itself after a successful scrape - if you fork this and see new jobs
-  in the repo but not on the live site, this is almost certainly why.
+  workflows, even if their `on.push.paths` would otherwise match. This
+  used to bite `scrape.yml`'s job-listing commit before jobs.json moved
+  to R2 - now that `scrape.yml` doesn't commit anything, this doesn't
+  apply here, but worth knowing if you add a workflow that commits data
+  and expects Pages to pick it up automatically.
 - The Google Identity Services script loads `async`/`defer`, so it may
   not be ready the instant a page mounts. The sign-in button polls for
   it (100ms interval, 10s timeout) rather than checking once, so it
@@ -105,11 +112,10 @@ unfiltered.
 1. Push this project to a new GitHub repo.
 2. Create a **fine-grained personal access token**
    (Settings → Developer settings → Fine-grained tokens) scoped to just
-   this repo, with **Contents: read and write** AND **Actions: read and
-   write** permissions. The second one is easy to miss but required -
-   without it, the Jobs page's "Fetch jobs now" button (and the
-   scraper's own post-scrape Pages-rebuild step) will fail with a
-   permissions error.
+   this repo, with **Contents: read and write** (for alerts/applications/
+   admins, still git-backed) AND **Actions: read and write** permissions.
+   The second one is easy to miss but required - without it, the Jobs
+   page's "Fetch jobs now" button will fail with a permissions error.
 
 ## 3. Deploy the Cloudflare Worker
 
@@ -119,6 +125,15 @@ npm install
 npx wrangler login
 ```
 
+R2 needs to be enabled once per Cloudflare account before you can create
+a bucket - **dashboard.cloudflare.com → R2 Object Storage → Enable R2**
+(free tier is generous; this JSON-blob use case won't come close to the
+limits, but Cloudflare requires the explicit opt-in regardless). Then:
+
+```bash
+npx wrangler r2 bucket create agastya-data
+```
+
 Edit `worker/wrangler.toml`:
 - `ALLOWED_EMAIL` - the permanent bootstrap admin, e.g. your own email.
   This account is always an admin, even if `admins.json` is missing or
@@ -126,6 +141,8 @@ Edit `worker/wrangler.toml`:
 - `GOOGLE_CLIENT_ID` - paste the client ID from step 1
 - `GITHUB_OWNER` - your GitHub username
 - `GITHUB_REPO` - your repo name
+- `[[r2_buckets]]` - already set to `bucket_name = "agastya-data"`; change
+  it if you named your bucket something else
 
 Then:
 
@@ -133,11 +150,27 @@ Then:
 npx wrangler secret put GITHUB_TOKEN
 # paste the fine-grained PAT from step 2 when prompted
 
+npx wrangler secret put SCRAPER_API_KEY
+# paste a random string, e.g. output of `openssl rand -hex 32` - the
+# scraper uses this to authenticate POST /api/scraper/sync-jobs since it
+# can't do an interactive Google sign-in. Add the SAME value as a GitHub
+# Actions secret too (Settings > Secrets and variables > Actions), same
+# name, so scrape.yml can use it.
+
 npm run deploy
 ```
 
 Wrangler will print your Worker's URL, something like
 `https://agastya-admin.<your-subdomain>.workers.dev`.
+
+`jobs.json`/`companies.json` start out empty in the new bucket - the
+Jobs/Companies pages will show nothing until you add a company (step 7)
+and run the scraper (step 9). If you're migrating from an existing
+git-tracked `jobs.json`/`companies.json`, seed the bucket first instead:
+```bash
+npx wrangler r2 object put agastya-data/jobs.json --file=path/to/jobs.json --content-type=application/json
+npx wrangler r2 object put agastya-data/companies.json --file=path/to/companies.json --content-type=application/json
+```
 
 ## 4. Point the frontend at your Worker and Google client
 
@@ -225,7 +258,10 @@ python admin/admin_cli.py delete-alert --id <alert-id>   # requires the password
 python admin/admin_cli.py mark-applied --job-id "<id>"
 ```
 
-Then commit and push `frontend/public/data/` yourself.
+Then commit and push `frontend/public/data/` yourself. `mark-applied`
+specifically no longer works locally - `jobs.json` moved to R2 (issue
+#7), so this offline tool can't look up job details anymore; use the
+Apply button on the live Jobs page instead.
 
 ## Local job watcher (desktop + Telegram notifications)
 

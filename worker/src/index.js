@@ -6,24 +6,34 @@
  * alerts and mark jobs applied - no roster entry required. Managing
  * companies, triggering scrapes, syncing jobs, and managing the admin
  * roster itself require the email to be an admin: either the permanent
- * bootstrap owner (env.ALLOWED_EMAIL) or an entry in admins.json. Only
- * once that's confirmed does the worker write to data files in the
- * GitHub repo via the GitHub Contents API, or (for /api/fetch-jobs)
- * trigger the scrape.yml GitHub Actions workflow via the Actions API.
+ * bootstrap owner (env.ALLOWED_EMAIL) or an entry in admins.json.
+ *
+ * jobs.json and companies.json live in the DATA_BUCKET R2 bucket, read
+ * publicly via GET /api/jobs and GET /api/companies with no auth at all
+ * - see r2GetJson/r2PutJson. alerts.json, applications.json, and
+ * admins.json still live in git, read/written via the GitHub Contents
+ * API (githubGetFile/githubPutFile) - admins.json deliberately stays in
+ * git even after alerts/applications eventually move to R2 too, since
+ * its commit history is a free audit log of who has admin access and
+ * when that changed. /api/fetch-jobs triggers the scrape.yml GitHub
+ * Actions workflow via the Actions API. /api/scraper/sync-jobs is how
+ * the scraper itself pushes newly-found jobs into R2 - it can't do
+ * Google OAuth, so it authenticates with a shared secret instead
+ * (SCRAPER_API_KEY) rather than going through verifyGoogleIdentity.
  *
  * Deleting an alert additionally requires owning it (or being an admin,
- * who can delete any alert) - see handleDeleteAlert. See the ROUTES
- * table below for which routes are admin-only.
+ * who can delete any alert) - see handleDeleteAlert.
  *
- * The GitHub token and allowed email live in Worker secrets/vars, never
- * in the frontend bundle, so nothing sensitive is ever shipped to the
- * browser.
+ * Nothing sensitive here is ever shipped to the frontend bundle.
  *
  * Required Worker secrets (set via `wrangler secret put`):
  *   GITHUB_TOKEN     - a fine-grained PAT scoped to Contents: read/write
  *                       AND Actions: read/write (the latter is needed
  *                       for /api/fetch-jobs to dispatch scrape.yml) on
  *                       this one repo only
+ *   SCRAPER_API_KEY  - a random shared secret; also set as a GitHub
+ *                       Actions secret of the same name so scrape.yml
+ *                       can authenticate POST /api/scraper/sync-jobs
  *
  * Required Worker vars (in wrangler.toml or the dashboard):
  *   ALLOWED_EMAIL     - e.g. abhishek.wadmare@gmail.com - the permanent
@@ -34,6 +44,9 @@
  *   GITHUB_OWNER      - your GitHub username
  *   GITHUB_REPO       - repo name
  *   GITHUB_BRANCH     - usually "main"
+ *
+ * Required Worker bindings:
+ *   DATA_BUCKET       - R2 bucket binding for jobs.json/companies.json
  */
 
 const DATA_PATH_PREFIX = "frontend/public/data";
@@ -137,6 +150,30 @@ async function githubPutFile(path, newContentObj, sha, message, env) {
   return resp.json();
 }
 
+// R2 equivalent of githubGetFile/githubPutFile - `etag` plays the same
+// role `sha` does for GitHub, an optimistic-concurrency token that
+// guards against two writers clobbering each other's changes.
+async function r2GetJson(key, env, fallback) {
+  const obj = await env.DATA_BUCKET.get(key);
+  if (!obj) {
+    return { content: fallback, etag: null };
+  }
+  // `.etag` (unquoted hex) is what `onlyIf.etagMatches` expects - NOT
+  // `.httpEtag` (the same value wrapped in quotes for HTTP headers),
+  // which R2 rejects with a "should not be wrapped in quotes" error.
+  return { content: JSON.parse(await obj.text()), etag: obj.etag };
+}
+
+async function r2PutJson(key, content, etag, env) {
+  const result = await env.DATA_BUCKET.put(key, JSON.stringify(content, null, 2), {
+    onlyIf: etag ? { etagMatches: etag } : undefined,
+    httpMetadata: { contentType: "application/json" },
+  });
+  if (!result) {
+    throw new Error(`R2 write to ${key} was rejected (conflicting concurrent update) - try again`);
+  }
+}
+
 async function handleAddAlert(payload, env, actorEmail) {
   const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/alerts.json`, env);
   const newAlert = {
@@ -180,8 +217,8 @@ async function handleDeleteAlert(payload, env, actorEmail) {
   return { ok: true };
 }
 
-async function handleAddCompany(payload, env, actorEmail) {
-  const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/companies.json`, env);
+async function handleAddCompany(payload, env) {
+  const { content, etag } = await r2GetJson("companies.json", env, { companies: [] });
 
   const tenant = (payload.company?.workday_tenant || "").trim().toLowerCase();
   const companyName = (payload.company?.company || "").trim();
@@ -206,30 +243,18 @@ async function handleAddCompany(payload, env, actorEmail) {
   }
 
   content.companies.push(newCompany);
-  await githubPutFile(
-    `${DATA_PATH_PREFIX}/companies.json`,
-    content,
-    sha,
-    `admin: add company ${newCompany.id} (by ${actorEmail})`,
-    env
-  );
+  await r2PutJson("companies.json", content, etag, env);
   return { ok: true, company: newCompany };
 }
 
-async function handleDeleteCompany(payload, env, actorEmail) {
-  const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/companies.json`, env);
+async function handleDeleteCompany(payload, env) {
+  const { content, etag } = await r2GetJson("companies.json", env, { companies: [] });
   const before = content.companies.length;
   content.companies = content.companies.filter((c) => c.id !== payload.id);
   if (content.companies.length === before) {
     throw new Error(`No company found with id '${payload.id}'`);
   }
-  await githubPutFile(
-    `${DATA_PATH_PREFIX}/companies.json`,
-    content,
-    sha,
-    `admin: delete company ${payload.id} (by ${actorEmail})`,
-    env
-  );
+  await r2PutJson("companies.json", content, etag, env);
   return { ok: true };
 }
 
@@ -252,36 +277,55 @@ async function handleFetchJobs(payload, env) {
   return { ok: true };
 }
 
-async function handleSyncJobs(payload, env, actorEmail) {
-  if (!Array.isArray(payload.jobs)) {
+const EMPTY_JOBS = { last_scraped: null, jobs: [] };
+
+// Shared by the admin-triggered /api/sync-jobs (local watcher upload)
+// and the scraper's /api/scraper/sync-jobs - same dedupe-by-id merge,
+// different callers/auth.
+async function mergeJobsIntoR2(newJobs, env) {
+  if (!Array.isArray(newJobs)) {
     throw new Error("Missing or invalid 'jobs' array");
   }
-  if (payload.jobs.some((j) => typeof j.id !== "string" || !j.id)) {
+  if (newJobs.some((j) => typeof j.id !== "string" || !j.id)) {
     throw new Error("Every job must have a non-empty string 'id'");
   }
 
-  const { content, sha } = await githubGetFile(`${DATA_PATH_PREFIX}/jobs.json`, env);
+  const { content, etag } = await r2GetJson("jobs.json", env, EMPTY_JOBS);
   const existingIds = new Set(content.jobs.map((j) => j.id));
 
-  const incoming = payload.jobs.filter((j) => !existingIds.has(j.id));
+  const incoming = newJobs.filter((j) => !existingIds.has(j.id));
   content.jobs = [...content.jobs, ...incoming].sort((a, b) =>
     (b.first_seen || "").localeCompare(a.first_seen || "")
   );
   content.last_scraped = new Date().toISOString();
 
-  await githubPutFile(
-    `${DATA_PATH_PREFIX}/jobs.json`,
-    content,
-    sha,
-    `chore: sync jobs from local watcher (+${incoming.length}, by ${actorEmail})`,
-    env
-  );
-  return { ok: true, added: incoming.length };
+  await r2PutJson("jobs.json", content, etag, env);
+  return incoming.length;
+}
+
+async function handleSyncJobs(payload, env) {
+  const added = await mergeJobsIntoR2(payload.jobs, env);
+  return { ok: true, added };
+}
+
+async function handleScraperSyncJobs(payload, env) {
+  const added = await mergeJobsIntoR2(payload.jobs, env);
+  return { ok: true, added };
+}
+
+async function handleGetJobs(env) {
+  const { content } = await r2GetJson("jobs.json", env, EMPTY_JOBS);
+  return content;
+}
+
+async function handleGetCompanies(env) {
+  const { content } = await r2GetJson("companies.json", env, { companies: [] });
+  return content;
 }
 
 async function handleMarkApplied(payload, env, actorEmail) {
   const [{ content: jobsContent }, { content: appsContent, sha: appsSha }] = await Promise.all([
-    githubGetFile(`${DATA_PATH_PREFIX}/jobs.json`, env),
+    r2GetJson("jobs.json", env, EMPTY_JOBS),
     githubGetFile(`${DATA_PATH_PREFIX}/applications.json`, env),
   ]);
 
@@ -365,7 +409,14 @@ async function handleRemoveAdmin(payload, env, actorEmail) {
   return { ok: true };
 }
 
-const ROUTES = {
+// Public, unauthenticated - jobs/companies are meant to be visible to
+// any visitor, R2 just replaces git as the storage backend.
+const GET_ROUTES = {
+  "/api/jobs": handleGetJobs,
+  "/api/companies": handleGetCompanies,
+};
+
+const POST_ROUTES = {
   "/api/add-alert": { handler: handleAddAlert, adminOnly: false },
   "/api/delete-alert": { handler: handleDeleteAlert, adminOnly: false },
   "/api/mark-applied": { handler: handleMarkApplied, adminOnly: false },
@@ -386,13 +437,31 @@ export default {
     }
 
     const url = new URL(request.url);
+    const jsonResponse = (body, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
+      });
 
     try {
+      if (request.method === "GET") {
+        const handler = GET_ROUTES[url.pathname];
+        if (!handler) return jsonResponse({ error: "Not found" }, 404);
+        return jsonResponse(await handler(env));
+      }
+
       if (request.method !== "POST") {
-        return new Response(JSON.stringify({ error: "Method not allowed" }), {
-          status: 405,
-          headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
-        });
+        return jsonResponse({ error: "Method not allowed" }, 405);
+      }
+
+      // The scraper can't do an interactive Google sign-in, so this one
+      // route uses a shared-secret header instead of verifyGoogleIdentity.
+      if (url.pathname === "/api/scraper/sync-jobs") {
+        if (request.headers.get("X-Scraper-Key") !== env.SCRAPER_API_KEY) {
+          throw new Error("Forbidden: invalid scraper key");
+        }
+        const body = await request.json();
+        return jsonResponse(await handleScraperSyncJobs(body, env));
       }
 
       const body = await request.json();
@@ -400,12 +469,9 @@ export default {
         throw new Error("Missing idToken");
       }
 
-      const route = ROUTES[url.pathname];
+      const route = POST_ROUTES[url.pathname];
       if (!route) {
-        return new Response(JSON.stringify({ error: "Not found" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
-        });
+        return jsonResponse({ error: "Not found" }, 404);
       }
 
       const payload = await verifyGoogleIdentity(body.idToken, env);
@@ -414,16 +480,9 @@ export default {
       }
 
       const result = await route.handler(body, env, payload.email);
-
-      return new Response(JSON.stringify(result), {
-        status: 200,
-        headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
-      });
+      return jsonResponse(result);
     } catch (err) {
-      return new Response(JSON.stringify({ error: err.message }), {
-        status: 400,
-        headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
-      });
+      return jsonResponse({ error: err.message }, 400);
     }
   },
 };
