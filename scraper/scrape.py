@@ -3,8 +3,14 @@
 Agastya scraper
 -----------------
 Runs on GitHub Actions cron. Polls each watched company's Workday
-endpoint (see core.py) and writes newly found postings into
-data/jobs.json.
+endpoint (see core.py) and pushes newly found postings to the Worker's
+R2-backed jobs.json via POST /api/scraper/sync-jobs (see issue #7 - this
+used to write frontend/public/data/jobs.json locally and git-commit it,
+which forced a Pages rebuild just to publish a JSON blob).
+
+Still writes the merged result to a local JOBS_FILE too, purely so
+notify.py (the next step in the same Actions job) can read the newly-
+added jobs to compose Telegram messages - that file is never committed.
 """
 
 import os
@@ -12,31 +18,50 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core import find_new_jobs_for_companies, load_json, save_json
+import requests
+
+from core import find_new_jobs_for_companies, save_json
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = REPO_ROOT / "frontend" / "public" / "data"
-COMPANIES_FILE = DATA_DIR / "companies.json"
-JOBS_FILE = DATA_DIR / "jobs.json"
+JOBS_FILE = REPO_ROOT / "frontend" / "public" / "data" / "jobs.json"
+
+WORKER_BASE_URL = os.environ.get(
+    "WORKER_BASE_URL", "https://agastya-admin.abhishekwadmare.workers.dev"
+)
+REQUEST_TIMEOUT = 15
 
 
 def run():
-    if not COMPANIES_FILE.exists():
-        print(f"No companies file found at {COMPANIES_FILE}", file=sys.stderr)
+    scraper_key = os.environ.get("SCRAPER_API_KEY")
+    if not scraper_key:
+        print("SCRAPER_API_KEY not set", file=sys.stderr)
         sys.exit(1)
 
-    companies_data = load_json(COMPANIES_FILE)
-    jobs_data = load_json(JOBS_FILE) if JOBS_FILE.exists() else {"last_scraped": None, "jobs": []}
+    companies_resp = requests.get(f"{WORKER_BASE_URL}/api/companies", timeout=REQUEST_TIMEOUT)
+    companies_resp.raise_for_status()
+    companies_data = companies_resp.json()
+
+    jobs_resp = requests.get(f"{WORKER_BASE_URL}/api/jobs", timeout=REQUEST_TIMEOUT)
+    jobs_resp.raise_for_status()
+    jobs_data = jobs_resp.json()
 
     existing_ids = {job["id"] for job in jobs_data["jobs"]}
     new_jobs = find_new_jobs_for_companies(companies_data, existing_ids)
 
     if new_jobs:
         print(f"Found {len(new_jobs)} new job(s).")
-        jobs_data["jobs"] = new_jobs + jobs_data["jobs"]
+        sync_resp = requests.post(
+            f"{WORKER_BASE_URL}/api/scraper/sync-jobs",
+            headers={"X-Scraper-Key": scraper_key},
+            json={"jobs": new_jobs},
+            timeout=REQUEST_TIMEOUT,
+        )
+        sync_resp.raise_for_status()
+        print(f"Synced {sync_resp.json().get('added', len(new_jobs))} new job(s) to the Worker.")
     else:
         print("No new jobs this run.")
 
+    jobs_data["jobs"] = new_jobs + jobs_data["jobs"]
     jobs_data["last_scraped"] = datetime.now(timezone.utc).isoformat()
     save_json(JOBS_FILE, jobs_data)
 

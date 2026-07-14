@@ -110,6 +110,18 @@ def cmd_delete_alert(args):
 
 
 def cmd_mark_applied(args):
+    # jobs.json moved to R2 (issue #7) - it's no longer a local file this
+    # CLI can read. Use the web UI's Apply button instead, which calls
+    # the live Worker; this offline tool was never repointed at R2/the
+    # Worker's read routes, by design (it's the local-only fallback).
+    if not JOBS_FILE.exists():
+        print(
+            "frontend/public/data/jobs.json no longer exists locally - job data "
+            "moved to R2. Use the Apply button on the live Jobs page instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     applications_data = load_json(APPLICATIONS_FILE) if APPLICATIONS_FILE.exists() else {"applications": []}
     jobs_data = load_json(JOBS_FILE)
 

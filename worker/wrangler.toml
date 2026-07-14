@@ -14,5 +14,16 @@ GITHUB_OWNER = "abhishekwadmare"
 GITHUB_REPO = "agastya"
 GITHUB_BRANCH = "main"
 
+# jobs.json / companies.json (and, later, alerts.json / applications.json)
+# live in this R2 bucket instead of git - see the "Single source of
+# truth" note in CLAUDE.md for why admins.json stays in git instead.
+[[r2_buckets]]
+binding = "DATA_BUCKET"
+bucket_name = "agastya-data"
+
 # GITHUB_TOKEN is a secret - set it with:
 #   wrangler secret put GITHUB_TOKEN
+# SCRAPER_API_KEY is a secret - set it with:
+#   wrangler secret put SCRAPER_API_KEY
+# (also needs to be added as a GitHub Actions secret with the same name,
+# for scrape.yml to authenticate its jobs sync)

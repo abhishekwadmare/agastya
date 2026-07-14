@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import PropTypes from "prop-types";
+import { WORKER_BASE_URL } from "../config.js";
 
 const DataContext = createContext(null);
 
@@ -22,9 +23,13 @@ export function DataProvider({ children }) {
     // cache-bust so admin changes show up without a hard refresh
     const bust = `?t=${Date.now()}`;
     return Promise.all([
-      fetch(`${base}data/jobs.json${bust}`).then((r) => r.json()).catch(() => EMPTY_JOBS),
+      // jobs/companies are R2-backed, served through the Worker instead
+      // of static files - see issue #7
+      fetch(`${WORKER_BASE_URL}/api/jobs${bust}`).then((r) => r.json()).catch(() => EMPTY_JOBS),
       fetch(`${base}data/alerts.json${bust}`).then((r) => r.json()).catch(() => EMPTY_ALERTS),
-      fetch(`${base}data/companies.json${bust}`).then((r) => r.json()).catch(() => EMPTY_COMPANIES),
+      fetch(`${WORKER_BASE_URL}/api/companies${bust}`)
+        .then((r) => r.json())
+        .catch(() => EMPTY_COMPANIES),
       fetch(`${base}data/applications.json${bust}`)
         .then((r) => r.json())
         .catch(() => EMPTY_APPLICATIONS),
