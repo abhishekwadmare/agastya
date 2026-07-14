@@ -7,6 +7,7 @@ import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
 import MDInput from "components/MDInput";
+import ListRow from "components/ListRow";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
@@ -108,28 +109,22 @@ export default function Companies() {
                   </MDTypography>
                 )}
                 {companiesData.companies.map((c) => (
-                  <MDBox
+                  <ListRow
                     key={c.id}
-                    display="flex"
-                    justifyContent="space-between"
-                    alignItems="center"
-                    py={1}
-                    borderBottom="1px solid"
-                    borderColor="grey.200"
-                  >
-                    <MDTypography variant="button">
-                      {c.company} — {c.workday_tenant}.{c.workday_host}/{c.workday_site}
-                    </MDTypography>
-                    <MDButton
-                      variant="outlined"
-                      color="error"
-                      size="small"
-                      onClick={() => handleDeleteCompany(c.id)}
-                      sx={{ opacity: canManage ? 1 : 0.6 }}
-                    >
-                      Delete
-                    </MDButton>
-                  </MDBox>
+                    avatarLabel={c.company[0].toUpperCase()}
+                    primary={`${c.company} — ${c.workday_tenant}.${c.workday_host}/${c.workday_site}`}
+                    action={
+                      <MDButton
+                        variant="outlined"
+                        color="error"
+                        size="small"
+                        onClick={() => handleDeleteCompany(c.id)}
+                        sx={{ opacity: canManage ? 1 : 0.6 }}
+                      >
+                        Delete
+                      </MDButton>
+                    }
+                  />
                 ))}
               </MDBox>
             </Card>

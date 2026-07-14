@@ -7,6 +7,7 @@ import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
 import MDInput from "components/MDInput";
+import ListRow from "components/ListRow";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
@@ -145,33 +146,23 @@ export default function Alerts() {
                   </MDTypography>
                 )}
                 {alertsData.alerts.map((a) => (
-                  <MDBox
+                  <ListRow
                     key={a.id}
-                    display="flex"
-                    justifyContent="space-between"
-                    alignItems="center"
-                    py={1}
-                    borderBottom="1px solid"
-                    borderColor="grey.200"
-                  >
-                    <MDBox>
-                      <MDTypography variant="button" display="block">
-                        {a.id} — {a.company}
-                      </MDTypography>
-                      <MDTypography variant="caption" color="text">
-                        added by {a.owner || "unknown"}
-                      </MDTypography>
-                    </MDBox>
-                    <MDButton
-                      variant="outlined"
-                      color="error"
-                      size="small"
-                      onClick={() => handleDeleteAlert(a.id)}
-                      sx={{ opacity: canManage || a.owner === email ? 1 : 0.6 }}
-                    >
-                      Delete
-                    </MDButton>
-                  </MDBox>
+                    avatarLabel={a.company[0].toUpperCase()}
+                    primary={`${a.id} — ${a.company}`}
+                    secondary={`added by ${a.owner || "unknown"}`}
+                    action={
+                      <MDButton
+                        variant="outlined"
+                        color="error"
+                        size="small"
+                        onClick={() => handleDeleteAlert(a.id)}
+                        sx={{ opacity: canManage || a.owner === email ? 1 : 0.6 }}
+                      >
+                        Delete
+                      </MDButton>
+                    }
+                  />
                 ))}
 
                 <MDBox mt={3}>
