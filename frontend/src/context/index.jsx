@@ -18,7 +18,7 @@ Coded by www.creative-tim.com
   you can customize the states for the different components here.
 */
 
-import { createContext, useContext, useReducer, useMemo, useEffect } from "react";
+import { createContext, useContext, useReducer, useMemo } from "react";
 
 // prop-types is a library for typechecking of props
 import PropTypes from "prop-types";
@@ -68,10 +68,9 @@ function reducer(state, action) {
   }
 }
 
-const DARK_MODE_STORAGE_KEY = "agastya_dark_mode";
-
-function getInitialState() {
-  return {
+// Material Dashboard 2 React context provider
+function MaterialUIControllerProvider({ children }) {
+  const initialState = {
     miniSidenav: false,
     transparentSidenav: false,
     whiteSidenav: false,
@@ -81,17 +80,10 @@ function getInitialState() {
     openConfigurator: false,
     direction: "ltr",
     layout: "dashboard",
-    darkMode: localStorage.getItem(DARK_MODE_STORAGE_KEY) === "true",
+    darkMode: false,
   };
-}
 
-// Material Dashboard 2 React context provider
-function MaterialUIControllerProvider({ children }) {
-  const [controller, dispatch] = useReducer(reducer, undefined, getInitialState);
-
-  useEffect(() => {
-    localStorage.setItem(DARK_MODE_STORAGE_KEY, controller.darkMode);
-  }, [controller.darkMode]);
+  const [controller, dispatch] = useReducer(reducer, initialState);
 
   const value = useMemo(() => [controller, dispatch], [controller, dispatch]);
 

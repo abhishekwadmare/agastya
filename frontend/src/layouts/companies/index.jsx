@@ -7,9 +7,6 @@ import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
 import MDInput from "components/MDInput";
-import ListRow from "components/ListRow";
-import EmptyState from "components/EmptyState.jsx";
-import ListRowSkeleton from "components/ListRowSkeleton.jsx";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
@@ -32,7 +29,7 @@ const emptyCompanyForm = {
 
 export default function Companies() {
   const { idToken, email } = useAuth();
-  const { companiesData, adminsData, reload, loading } = useData();
+  const { companiesData, adminsData, reload } = useData();
   const canManage = isAdmin(email, adminsData, BOOTSTRAP_ADMIN_EMAIL);
 
   const [status, setStatus] = useState(null);
@@ -105,27 +102,34 @@ export default function Companies() {
                 <MDTypography variant="h6" mb={2}>
                   Companies watched
                 </MDTypography>
-                {loading && <ListRowSkeleton count={3} />}
-                {!loading && companiesData.companies.length === 0 && (
-                  <EmptyState icon="business" message="No companies yet — add one on the right." />
+                {companiesData.companies.length === 0 && (
+                  <MDTypography variant="button" color="text">
+                    No companies yet — add one on the right.
+                  </MDTypography>
                 )}
                 {companiesData.companies.map((c) => (
-                  <ListRow
+                  <MDBox
                     key={c.id}
-                    avatarLabel={c.company[0].toUpperCase()}
-                    primary={`${c.company} — ${c.workday_tenant}.${c.workday_host}/${c.workday_site}`}
-                    action={
-                      <MDButton
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        onClick={() => handleDeleteCompany(c.id)}
-                        sx={{ opacity: canManage ? 1 : 0.6 }}
-                      >
-                        Delete
-                      </MDButton>
-                    }
-                  />
+                    display="flex"
+                    justifyContent="space-between"
+                    alignItems="center"
+                    py={1}
+                    borderBottom="1px solid"
+                    borderColor="grey.200"
+                  >
+                    <MDTypography variant="button">
+                      {c.company} — {c.workday_tenant}.{c.workday_host}/{c.workday_site}
+                    </MDTypography>
+                    <MDButton
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      onClick={() => handleDeleteCompany(c.id)}
+                      sx={{ opacity: canManage ? 1 : 0.6 }}
+                    >
+                      Delete
+                    </MDButton>
+                  </MDBox>
                 ))}
               </MDBox>
             </Card>

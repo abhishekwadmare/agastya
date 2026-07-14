@@ -7,8 +7,6 @@ import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
 import MDInput from "components/MDInput";
-import ListRow from "components/ListRow";
-import ListRowSkeleton from "components/ListRowSkeleton.jsx";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
@@ -25,7 +23,7 @@ const emptyAdminForm = { email: "" };
 
 export default function Admins() {
   const { idToken, email } = useAuth();
-  const { adminsData, reload, loading } = useData();
+  const { adminsData, reload } = useData();
 
   const [status, setStatus] = useState(null);
   const [form, setForm] = useState(emptyAdminForm);
@@ -72,31 +70,39 @@ export default function Admins() {
                   Admins
                 </MDTypography>
 
-                <ListRow
-                  avatarLabel={BOOTSTRAP_ADMIN_EMAIL[0].toUpperCase()}
-                  avatarColor="dark"
-                  primary={`${BOOTSTRAP_ADMIN_EMAIL} (owner)`}
-                />
+                <MDBox
+                  display="flex"
+                  justifyContent="space-between"
+                  alignItems="center"
+                  py={1}
+                  borderBottom="1px solid"
+                  borderColor="grey.200"
+                >
+                  <MDTypography variant="button">{BOOTSTRAP_ADMIN_EMAIL} (owner)</MDTypography>
+                </MDBox>
 
-                {loading && <ListRowSkeleton count={2} />}
                 {adminsData.admins.map((a) => (
-                  <ListRow
+                  <MDBox
                     key={a.email}
-                    avatarLabel={a.email[0].toUpperCase()}
-                    primary={a.email}
-                    action={
-                      <MDButton
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        onClick={() => handleRemoveAdmin(a.email)}
-                        sx={{ opacity: canManage ? 1 : 0.6 }}
-                        disabled={!canManage}
-                      >
-                        Remove
-                      </MDButton>
-                    }
-                  />
+                    display="flex"
+                    justifyContent="space-between"
+                    alignItems="center"
+                    py={1}
+                    borderBottom="1px solid"
+                    borderColor="grey.200"
+                  >
+                    <MDTypography variant="button">{a.email}</MDTypography>
+                    <MDButton
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      onClick={() => handleRemoveAdmin(a.email)}
+                      sx={{ opacity: canManage ? 1 : 0.6 }}
+                      disabled={!canManage}
+                    >
+                      Remove
+                    </MDButton>
+                  </MDBox>
                 ))}
               </MDBox>
             </Card>

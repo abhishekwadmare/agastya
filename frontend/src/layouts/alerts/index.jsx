@@ -7,9 +7,6 @@ import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
 import MDInput from "components/MDInput";
-import ListRow from "components/ListRow";
-import EmptyState from "components/EmptyState.jsx";
-import ListRowSkeleton from "components/ListRowSkeleton.jsx";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
@@ -36,7 +33,7 @@ const emptyAlertForm = {
 
 export default function Alerts() {
   const { idToken, email, requireSignIn } = useAuth();
-  const { alertsData, adminsData, reload, loading } = useData();
+  const { alertsData, adminsData, reload } = useData();
   const canManage = isAdmin(email, adminsData, BOOTSTRAP_ADMIN_EMAIL);
 
   const [status, setStatus] = useState(null);
@@ -142,31 +139,39 @@ export default function Alerts() {
                     own.
                   </MDTypography>
                 )}
-                {idToken && loading && <ListRowSkeleton count={2} />}
-                {idToken && !loading && alertsData.alerts.length === 0 && (
-                  <EmptyState
-                    icon="notifications_active"
-                    message="No alerts yet — add one on the right."
-                  />
+                {idToken && alertsData.alerts.length === 0 && (
+                  <MDTypography variant="button" color="text">
+                    No alerts yet — add one on the right.
+                  </MDTypography>
                 )}
                 {alertsData.alerts.map((a) => (
-                  <ListRow
+                  <MDBox
                     key={a.id}
-                    avatarLabel={a.company[0].toUpperCase()}
-                    primary={`${a.id} — ${a.company}`}
-                    secondary={`added by ${a.owner || "unknown"}`}
-                    action={
-                      <MDButton
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        onClick={() => handleDeleteAlert(a.id)}
-                        sx={{ opacity: canManage || a.owner === email ? 1 : 0.6 }}
-                      >
-                        Delete
-                      </MDButton>
-                    }
-                  />
+                    display="flex"
+                    justifyContent="space-between"
+                    alignItems="center"
+                    py={1}
+                    borderBottom="1px solid"
+                    borderColor="grey.200"
+                  >
+                    <MDBox>
+                      <MDTypography variant="button" display="block">
+                        {a.id} — {a.company}
+                      </MDTypography>
+                      <MDTypography variant="caption" color="text">
+                        added by {a.owner || "unknown"}
+                      </MDTypography>
+                    </MDBox>
+                    <MDButton
+                      variant="outlined"
+                      color="error"
+                      size="small"
+                      onClick={() => handleDeleteAlert(a.id)}
+                      sx={{ opacity: canManage || a.owner === email ? 1 : 0.6 }}
+                    >
+                      Delete
+                    </MDButton>
+                  </MDBox>
                 ))}
 
                 <MDBox mt={3}>
