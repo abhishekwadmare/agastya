@@ -8,6 +8,8 @@ import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
 import MDInput from "components/MDInput";
 import ListRow from "components/ListRow";
+import EmptyState from "components/EmptyState.jsx";
+import ListRowSkeleton from "components/ListRowSkeleton.jsx";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
@@ -30,7 +32,7 @@ const emptyCompanyForm = {
 
 export default function Companies() {
   const { idToken, email } = useAuth();
-  const { companiesData, adminsData, reload } = useData();
+  const { companiesData, adminsData, reload, loading } = useData();
   const canManage = isAdmin(email, adminsData, BOOTSTRAP_ADMIN_EMAIL);
 
   const [status, setStatus] = useState(null);
@@ -103,10 +105,9 @@ export default function Companies() {
                 <MDTypography variant="h6" mb={2}>
                   Companies watched
                 </MDTypography>
-                {companiesData.companies.length === 0 && (
-                  <MDTypography variant="button" color="text">
-                    No companies yet — add one on the right.
-                  </MDTypography>
+                {loading && <ListRowSkeleton count={3} />}
+                {!loading && companiesData.companies.length === 0 && (
+                  <EmptyState icon="business" message="No companies yet — add one on the right." />
                 )}
                 {companiesData.companies.map((c) => (
                   <ListRow

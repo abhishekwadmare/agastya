@@ -8,6 +8,7 @@ import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
 import MDInput from "components/MDInput";
 import ListRow from "components/ListRow";
+import ListRowSkeleton from "components/ListRowSkeleton.jsx";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
@@ -24,7 +25,7 @@ const emptyAdminForm = { email: "" };
 
 export default function Admins() {
   const { idToken, email } = useAuth();
-  const { adminsData, reload } = useData();
+  const { adminsData, reload, loading } = useData();
 
   const [status, setStatus] = useState(null);
   const [form, setForm] = useState(emptyAdminForm);
@@ -77,6 +78,7 @@ export default function Admins() {
                   primary={`${BOOTSTRAP_ADMIN_EMAIL} (owner)`}
                 />
 
+                {loading && <ListRowSkeleton count={2} />}
                 {adminsData.admins.map((a) => (
                   <ListRow
                     key={a.email}

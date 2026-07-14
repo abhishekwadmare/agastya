@@ -8,6 +8,8 @@ import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
 import MDInput from "components/MDInput";
 import ListRow from "components/ListRow";
+import EmptyState from "components/EmptyState.jsx";
+import ListRowSkeleton from "components/ListRowSkeleton.jsx";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
@@ -34,7 +36,7 @@ const emptyAlertForm = {
 
 export default function Alerts() {
   const { idToken, email, requireSignIn } = useAuth();
-  const { alertsData, adminsData, reload } = useData();
+  const { alertsData, adminsData, reload, loading } = useData();
   const canManage = isAdmin(email, adminsData, BOOTSTRAP_ADMIN_EMAIL);
 
   const [status, setStatus] = useState(null);
@@ -140,10 +142,12 @@ export default function Alerts() {
                     own.
                   </MDTypography>
                 )}
-                {idToken && alertsData.alerts.length === 0 && (
-                  <MDTypography variant="button" color="text">
-                    No alerts yet — add one on the right.
-                  </MDTypography>
+                {idToken && loading && <ListRowSkeleton count={2} />}
+                {idToken && !loading && alertsData.alerts.length === 0 && (
+                  <EmptyState
+                    icon="notifications_active"
+                    message="No alerts yet — add one on the right."
+                  />
                 )}
                 {alertsData.alerts.map((a) => (
                   <ListRow
