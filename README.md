@@ -23,9 +23,15 @@ admin access.
 |---|---|
 | ![Alerts page](docs/screenshots/alerts.png) | ![Applications page](docs/screenshots/applications.png) |
 
-| About |
-|---|
-| ![About page](docs/screenshots/about.png) |
+| Admins | About |
+|---|---|
+| ![Admins page](docs/screenshots/admins.png) | ![About page](docs/screenshots/about.png) |
+
+A dark mode toggle (top-right of the navbar) is also available:
+
+| Jobs (dark) | Companies (dark) |
+|---|---|
+| ![Jobs page, dark mode](docs/screenshots/jobs-dark.png) | ![Companies page, dark mode](docs/screenshots/companies-dark.png) |
 
 ## Architecture
 
