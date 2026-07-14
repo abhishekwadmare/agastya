@@ -16,7 +16,7 @@ import { useAuth } from "context/AuthContext.jsx";
 import { useData } from "context/DataContext.jsx";
 import { callWorker } from "lib/callWorker.js";
 import { parseWorkdayUrl } from "lib/parseWorkdayUrl.js";
-import { getCurrentRole } from "lib/roles.js";
+import { isAdmin, requireAdmin } from "lib/roles.js";
 import { BOOTSTRAP_ADMIN_EMAIL } from "../../config.js";
 import StatusSnackbar from "components/StatusSnackbar.jsx";
 
@@ -34,7 +34,7 @@ const emptyAlertForm = {
 export default function Alerts() {
   const { idToken, email, requireSignIn } = useAuth();
   const { alertsData, adminsData, reload } = useData();
-  const canManage = getCurrentRole(email, adminsData, BOOTSTRAP_ADMIN_EMAIL) === "admin";
+  const canManage = isAdmin(email, adminsData, BOOTSTRAP_ADMIN_EMAIL);
 
   const [status, setStatus] = useState(null);
   const [form, setForm] = useState(emptyAlertForm);
@@ -108,7 +108,7 @@ export default function Alerts() {
     if (!file) return;
 
     setStatus(null);
-    if (!requireSignIn(setStatus)) return;
+    if (!requireAdmin({ idToken, email, canManage, setStatus })) return;
     try {
       const parsed = JSON.parse(await file.text());
       if (!Array.isArray(parsed.jobs)) {
@@ -148,15 +148,20 @@ export default function Alerts() {
                     borderBottom="1px solid"
                     borderColor="grey.200"
                   >
-                    <MDTypography variant="button">
-                      {a.id} — {a.company}
-                    </MDTypography>
+                    <MDBox>
+                      <MDTypography variant="button" display="block">
+                        {a.id} — {a.company}
+                      </MDTypography>
+                      <MDTypography variant="caption" color="text">
+                        added by {a.owner || "unknown"}
+                      </MDTypography>
+                    </MDBox>
                     <MDButton
                       variant="outlined"
                       color="error"
                       size="small"
                       onClick={() => handleDeleteAlert(a.id)}
-                      sx={{ opacity: idToken ? 1 : 0.6 }}
+                      sx={{ opacity: canManage || a.owner === email ? 1 : 0.6 }}
                     >
                       Delete
                     </MDButton>
