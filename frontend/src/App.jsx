@@ -7,6 +7,7 @@ import CssBaseline from "@mui/material/CssBaseline";
 import Sidenav from "examples/Sidenav";
 import theme from "assets/theme";
 import themeDark from "assets/theme-dark";
+import agastyaMark from "assets/images/agastya-mark.svg";
 import routes from "routes";
 
 import { MaterialUIControllerProvider, useMaterialUIController, setMiniSidenav } from "context";
@@ -43,6 +44,7 @@ function Layout() {
       <CssBaseline />
       <Sidenav
         color={sidenavColor}
+        brand={agastyaMark}
         brandName="Agastya"
         routes={routes}
         onMouseEnter={handleOnMouseEnter}
