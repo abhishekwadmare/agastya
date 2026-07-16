@@ -1,0 +1,35 @@
+name: Bug report
+description: Something in Agastya isn't working as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What's happening
+      description: What did you expect, and what actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: >
+        How can this be reproduced? Include URLs, company/tenant names,
+        or API responses if relevant - concrete repro steps are what
+        actually gets a bug fixed fastest.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does this live?
+      options:
+        - frontend (React/Vite)
+        - worker (Cloudflare Worker)
+        - scraper (Python)
+        - admin CLI
+        - Not sure
+    validations:
+      required: false

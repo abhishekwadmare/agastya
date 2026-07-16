@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose a new feature or enhancement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: What should Agastya do that it doesn't today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What problem does this solve, or what prompted it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Design notes / open questions (optional)
+      description: >
+        Any constraints, alternatives considered, or things you're
+        deliberately leaving for whoever implements this to decide.
+    validations:
+      required: false

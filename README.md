@@ -1,5 +1,9 @@
 # Agastya
 
+[![CI](https://github.com/abhishekwadmare/agastya/actions/workflows/ci.yml/badge.svg)](https://github.com/abhishekwadmare/agastya/actions/workflows/ci.yml)
+[![Deploy](https://github.com/abhishekwadmare/agastya/actions/workflows/deploy.yml/badge.svg)](https://github.com/abhishekwadmare/agastya/actions/workflows/deploy.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 A self-hosted job alert system that monitors Workday-hosted company career
 pages directly (rather than waiting for LinkedIn/Indeed syndication),
 surfaces new postings on a public multi-page dashboard (Jobs / Companies /
@@ -318,6 +322,11 @@ prohibit automated scraping, and detection risks account suspension.
 Workday's job search endpoint is a public, unauthenticated JSON API
 designed to be consumed by the career site's own frontend, which is a
 materially different situation.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the branch/PR workflow and
+local dev setup.
 
 ## License
 
