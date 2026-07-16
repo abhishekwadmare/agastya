@@ -239,6 +239,11 @@ async function handleGetAlerts(env, idToken) {
   return { alerts: content.alerts.filter((a) => a.owner === payload.email) };
 }
 
+// The only ATS this app knows how to poll today. A company's `ats_type` is
+// missing on every row added before this field existed - treat that the
+// same as "workday" everywhere it's read, rather than backfilling.
+const VALID_ATS = ["workday"];
+
 async function handleAddCompany(payload, env) {
   const { content, etag } = await r2GetJson("companies.json", env, { companies: [] });
 
@@ -246,14 +251,19 @@ async function handleAddCompany(payload, env) {
   const companyName = (payload.company?.company || "").trim();
   const site = (payload.company?.workday_site || "").trim();
   const host = (payload.company?.workday_host || "wd1").trim() || "wd1";
+  const atsType = (payload.company?.ats_type || "workday").trim().toLowerCase();
 
   if (!tenant || !companyName || !site) {
     throw new Error("company, workday_tenant, and workday_site are required");
+  }
+  if (!VALID_ATS.includes(atsType)) {
+    throw new Error(`Unsupported ats_type '${atsType}' - only ${VALID_ATS.join(", ")} is supported today`);
   }
 
   const newCompany = {
     id: tenant,
     company: companyName,
+    ats_type: atsType,
     workday_tenant: tenant,
     workday_host: host,
     workday_site: site,
@@ -278,6 +288,39 @@ async function handleDeleteCompany(payload, env) {
   }
   await r2PutJson("companies.json", content, etag, env);
   return { ok: true };
+}
+
+// Tests a candidate Workday tenant/host/site combo against the live CXS
+// API before it's ever saved - same request shape scraper/core.py's
+// fetch_workday_jobs() makes. Done server-side (not from the browser) to
+// sidestep Workday's CORS policy for the frontend origin.
+async function handleTestCompany(payload, env) {
+  const tenant = (payload.workday_tenant || "").trim().toLowerCase();
+  const host = (payload.workday_host || "wd1").trim() || "wd1";
+  const site = (payload.workday_site || "").trim();
+
+  if (!tenant || !site) {
+    throw new Error("workday_tenant and workday_site are required");
+  }
+
+  const url = `https://${tenant}.${host}.myworkdayjobs.com/wday/cxs/${tenant}/${site}/jobs`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ limit: 1, offset: 0, searchText: "" }),
+    });
+  } catch (err) {
+    return { ok: false, message: `Could not reach Workday: ${err.message}` };
+  }
+
+  if (!res.ok) {
+    return { ok: false, status: res.status, message: `Workday returned ${res.status}` };
+  }
+
+  const data = await res.json();
+  return { ok: true, total: data.total ?? 0 };
 }
 
 async function handleFetchJobs(payload, env) {
@@ -452,6 +495,7 @@ const POST_ROUTES = {
   "/api/mark-applied": { handler: handleMarkApplied, adminOnly: false },
   "/api/add-company": { handler: handleAddCompany, adminOnly: true },
   "/api/delete-company": { handler: handleDeleteCompany, adminOnly: true },
+  "/api/test-company": { handler: handleTestCompany, adminOnly: true },
   "/api/fetch-jobs": { handler: handleFetchJobs, adminOnly: true },
   "/api/sync-jobs": { handler: handleSyncJobs, adminOnly: true },
   "/api/add-admin": { handler: handleAddAdmin, adminOnly: true },
