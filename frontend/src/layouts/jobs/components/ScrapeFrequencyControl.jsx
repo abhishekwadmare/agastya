@@ -18,15 +18,25 @@ export default function ScrapeFrequencyControl({
   email,
   canManage,
   currentValue,
+  loading,
   onSaved,
   onStatus,
 }) {
   const [frequencyInput, setFrequencyInput] = useState(currentValue);
   const [saving, setSaving] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   useEffect(() => {
+    // DataContext seeds currentValue with a client-side placeholder
+    // (4) until GET /api/settings actually resolves - syncing from it
+    // while still loading would show that placeholder first, then
+    // visibly jump to the real stored value a moment later. `loading`
+    // only ever flips false once (never resets on later reloads), so
+    // this just smooths the first page load.
+    if (loading) return;
     setFrequencyInput(currentValue);
-  }, [currentValue]);
+    setHasLoaded(true);
+  }, [loading, currentValue]);
 
   async function handleSave() {
     onStatus(null);
@@ -51,9 +61,11 @@ export default function ScrapeFrequencyControl({
         label="Auto-scrape every (h)"
         type="number"
         size="small"
-        value={frequencyInput}
+        value={hasLoaded ? frequencyInput : ""}
+        placeholder={hasLoaded ? undefined : "Loading…"}
         onChange={(e) => setFrequencyInput(e.target.value)}
         inputProps={{ min: 1 }}
+        disabled={!hasLoaded}
         sx={{ width: 160, opacity: canManage ? 1 : 0.6 }}
       />
       <MDButton
@@ -61,7 +73,7 @@ export default function ScrapeFrequencyControl({
         color="dark"
         size="small"
         onClick={handleSave}
-        disabled={saving}
+        disabled={saving || !hasLoaded}
         sx={{ opacity: canManage ? 1 : 0.6 }}
       >
         <Icon sx={{ mr: 0.5 }}>save</Icon>
@@ -76,6 +88,7 @@ ScrapeFrequencyControl.propTypes = {
   email: PropTypes.string,
   canManage: PropTypes.bool.isRequired,
   currentValue: PropTypes.number.isRequired,
+  loading: PropTypes.bool.isRequired,
   onSaved: PropTypes.func.isRequired,
   onStatus: PropTypes.func.isRequired,
 };
