@@ -15,14 +15,16 @@ no bypassing bot protections.
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import requests
 
 REQUEST_TIMEOUT = 15
-REQUEST_DELAY_SECONDS = 2  # be polite between requests
+REQUEST_DELAY_SECONDS = 2  # be polite between requests to the SAME tenant
 PAGE_SIZE = 20
 MAX_PAGES = 25  # safety cap so a misbehaving endpoint can't loop forever
+MAX_CONCURRENT_COMPANIES = 5  # different tenants/hosts, safe to overlap
 
 
 def load_json(path):
@@ -176,39 +178,61 @@ def normalize_job_from_company(raw_job, company, tenant, site, wd_host):
     }
 
 
+def _fetch_company_raw_jobs(company):
+    """
+    Fetch one company's raw Workday postings. Returns (company, raw_jobs)
+    - raw_jobs is [] if the company is misconfigured or the request
+    failed, so the caller doesn't need to special-case either.
+    """
+    tenant = company.get("workday_tenant")
+    site = company.get("workday_site")
+    wd_host = company.get("workday_host", "wd1")
+
+    if not tenant or not site:
+        print(f"Skipping company '{company.get('id')}': missing workday_tenant/workday_site")
+        return company, []
+
+    print(f"Checking {company['company']} ({tenant}/{site})...")
+    try:
+        return company, fetch_workday_jobs(tenant, site, wd_host)
+    except requests.RequestException as e:
+        print(f"  Failed to fetch {company['company']}: {e}", file=sys.stderr)
+        return company, []
+
+
 def find_new_jobs_for_companies(companies_data, existing_ids):
     """
     Poll every watched company's Workday endpoint and return ALL
     postings not already present in existing_ids - no keyword/location
     filtering (that's an explicitly deferred per-user feature). Mutates
     existing_ids in place, adding the id of each job returned.
+
+    Companies are fetched concurrently (bounded pool) since each one
+    hits a different Workday tenant/host - this doesn't increase load on
+    any single tenant, it just overlaps the wait time across tenants
+    instead of paying it serially. The REQUEST_DELAY_SECONDS politeness
+    delay between pages of the *same* company (inside fetch_workday_jobs)
+    is untouched. existing_ids is only mutated on the main thread, after
+    all fetches complete, since sets aren't safe to update concurrently.
     """
     new_jobs = []
+    companies = companies_data.get("companies", [])
 
-    for company in companies_data.get("companies", []):
-        tenant = company.get("workday_tenant")
-        site = company.get("workday_site")
-        wd_host = company.get("workday_host", "wd1")
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_COMPANIES) as executor:
+        futures = [executor.submit(_fetch_company_raw_jobs, company) for company in companies]
 
-        if not tenant or not site:
-            print(f"Skipping company '{company.get('id')}': missing workday_tenant/workday_site")
-            continue
+        for future in as_completed(futures):
+            company, raw_jobs = future.result()
+            tenant = company.get("workday_tenant")
+            site = company.get("workday_site")
+            wd_host = company.get("workday_host", "wd1")
 
-        print(f"Checking {company['company']} ({tenant}/{site})...")
-        try:
-            raw_jobs = fetch_workday_jobs(tenant, site, wd_host)
-        except requests.RequestException as e:
-            print(f"  Failed to fetch {company['company']}: {e}", file=sys.stderr)
-            continue
+            for raw_job in raw_jobs:
+                normalized = normalize_job_from_company(raw_job, company, tenant, site, wd_host)
+                if normalized["id"] in existing_ids:
+                    continue  # already seen in a previous run
 
-        for raw_job in raw_jobs:
-            normalized = normalize_job_from_company(raw_job, company, tenant, site, wd_host)
-            if normalized["id"] in existing_ids:
-                continue  # already seen in a previous run
-
-            new_jobs.append(normalized)
-            existing_ids.add(normalized["id"])
-
-        time.sleep(REQUEST_DELAY_SECONDS)
+                new_jobs.append(normalized)
+                existing_ids.add(normalized["id"])
 
     return new_jobs
