@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Grid from "@mui/material/Grid";
 import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
@@ -7,7 +7,6 @@ import Icon from "@mui/material/Icon";
 import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
-import MDInput from "components/MDInput";
 
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
@@ -21,6 +20,7 @@ import { isAdmin, requireAdmin } from "lib/roles.js";
 import { BOOTSTRAP_ADMIN_EMAIL } from "../../config.js";
 import StatusSnackbar from "components/StatusSnackbar.jsx";
 import JobRow from "layouts/jobs/components/JobRow.jsx";
+import ScrapeFrequencyControl from "layouts/jobs/components/ScrapeFrequencyControl.jsx";
 
 const LOCAL_APPLIED_KEY = "agastya_locally_marked_applied";
 
@@ -51,12 +51,6 @@ export default function Jobs() {
   const [activeCompany, setActiveCompany] = useState("all");
   const [fetching, setFetching] = useState(false);
   const [fetchStatus, setFetchStatus] = useState(null);
-  const [frequencyInput, setFrequencyInput] = useState(settingsData.scrape_frequency_hours);
-  const [savingFrequency, setSavingFrequency] = useState(false);
-
-  useEffect(() => {
-    setFrequencyInput(settingsData.scrape_frequency_hours);
-  }, [settingsData.scrape_frequency_hours]);
 
   const appliedIds = useMemo(() => {
     const fromCli = new Set(applicationsData.applications.map((a) => a.job_id));
@@ -102,23 +96,6 @@ export default function Jobs() {
       setFetchStatus({ type: "error", text: err.message });
     } finally {
       setFetching(false);
-    }
-  }
-
-  async function handleSaveFrequency() {
-    setFetchStatus(null);
-    if (!requireAdmin({ idToken, email, canManage, setStatus: setFetchStatus })) return;
-    setSavingFrequency(true);
-    try {
-      await callWorker("/api/update-settings", idToken, {
-        scrape_frequency_hours: Number(frequencyInput),
-      });
-      setFetchStatus({ type: "success", text: "Scrape frequency updated." });
-      reload();
-    } catch (err) {
-      setFetchStatus({ type: "error", text: err.message });
-    } finally {
-      setSavingFrequency(false);
     }
   }
 
@@ -178,26 +155,14 @@ export default function Jobs() {
           </Stack>
 
           <MDBox display="flex" alignItems="center" gap={1} flexWrap="wrap">
-            <MDInput
-              label="Auto-scrape every (h)"
-              type="number"
-              size="small"
-              value={frequencyInput}
-              onChange={(e) => setFrequencyInput(e.target.value)}
-              inputProps={{ min: 1 }}
-              sx={{ width: 160, opacity: canManage ? 1 : 0.6 }}
+            <ScrapeFrequencyControl
+              idToken={idToken}
+              email={email}
+              canManage={canManage}
+              currentValue={settingsData.scrape_frequency_hours}
+              onSaved={reload}
+              onStatus={setFetchStatus}
             />
-            <MDButton
-              variant="outlined"
-              color="dark"
-              size="small"
-              onClick={handleSaveFrequency}
-              disabled={savingFrequency}
-              sx={{ opacity: canManage ? 1 : 0.6 }}
-            >
-              <Icon sx={{ mr: 0.5 }}>save</Icon>
-              {savingFrequency ? "Saving…" : "Save"}
-            </MDButton>
 
             <MDButton
               variant="gradient"
