@@ -388,6 +388,26 @@ async function handleGetCompanies(env) {
   return content;
 }
 
+const EMPTY_SETTINGS = { scrape_frequency_hours: 4 };
+const MIN_SCRAPE_FREQUENCY_HOURS = 1;
+
+async function handleGetSettings(env) {
+  const { content } = await r2GetJson("settings.json", env, EMPTY_SETTINGS);
+  return content;
+}
+
+async function handleUpdateSettings(payload, env) {
+  const frequency = Number(payload.scrape_frequency_hours);
+  if (!Number.isFinite(frequency) || frequency < MIN_SCRAPE_FREQUENCY_HOURS) {
+    throw new Error(`scrape_frequency_hours must be a number >= ${MIN_SCRAPE_FREQUENCY_HOURS}`);
+  }
+
+  const { content, etag } = await r2GetJson("settings.json", env, EMPTY_SETTINGS);
+  content.scrape_frequency_hours = frequency;
+  await r2PutJson("settings.json", content, etag, env);
+  return { ok: true, settings: content };
+}
+
 const EMPTY_APPLICATIONS = { applications: [] };
 
 async function handleMarkApplied(payload, env, actorEmail) {
@@ -487,6 +507,7 @@ const GET_ROUTES = {
   "/api/companies": handleGetCompanies,
   "/api/alerts": handleGetAlerts,
   "/api/applications": handleGetApplications,
+  "/api/settings": handleGetSettings,
 };
 
 const POST_ROUTES = {
@@ -500,6 +521,7 @@ const POST_ROUTES = {
   "/api/sync-jobs": { handler: handleSyncJobs, adminOnly: true },
   "/api/add-admin": { handler: handleAddAdmin, adminOnly: true },
   "/api/remove-admin": { handler: handleRemoveAdmin, adminOnly: true },
+  "/api/update-settings": { handler: handleUpdateSettings, adminOnly: true },
 };
 
 export default {
