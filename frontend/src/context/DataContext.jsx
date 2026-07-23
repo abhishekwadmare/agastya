@@ -10,6 +10,7 @@ const EMPTY_ALERTS = { alerts: [] };
 const EMPTY_COMPANIES = { companies: [] };
 const EMPTY_APPLICATIONS = { applications: [] };
 const EMPTY_ADMINS = { admins: [] };
+const EMPTY_SETTINGS = { scrape_frequency_hours: 4 };
 
 export function DataProvider({ children }) {
   const { idToken } = useAuth();
@@ -18,6 +19,7 @@ export function DataProvider({ children }) {
   const [companiesData, setCompaniesData] = useState(EMPTY_COMPANIES);
   const [applicationsData, setApplicationsData] = useState(EMPTY_APPLICATIONS);
   const [adminsData, setAdminsData] = useState(EMPTY_ADMINS);
+  const [settingsData, setSettingsData] = useState(EMPTY_SETTINGS);
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(() => {
@@ -42,12 +44,16 @@ export function DataProvider({ children }) {
         .then((r) => r.json())
         .catch(() => EMPTY_APPLICATIONS),
       fetch(`${base}data/admins.json${bust}`).then((r) => r.json()).catch(() => EMPTY_ADMINS),
-    ]).then(([jobs, alerts, companies, applications, admins]) => {
+      fetch(`${WORKER_BASE_URL}/api/settings${bust}`)
+        .then((r) => r.json())
+        .catch(() => EMPTY_SETTINGS),
+    ]).then(([jobs, alerts, companies, applications, admins, settings]) => {
       setJobsData(jobs);
       setAlertsData(alerts);
       setCompaniesData(companies);
       setApplicationsData(applications);
       setAdminsData(admins);
+      setSettingsData(settings);
       setLoading(false);
     });
   }, [idToken]);
@@ -64,6 +70,7 @@ export function DataProvider({ children }) {
         companiesData,
         applicationsData,
         adminsData,
+        settingsData,
         loading,
         reload,
       }}
