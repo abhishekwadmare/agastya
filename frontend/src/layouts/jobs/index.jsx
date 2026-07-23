@@ -160,6 +160,7 @@ export default function Jobs() {
               email={email}
               canManage={canManage}
               currentValue={settingsData.scrape_frequency_hours}
+              loading={loading}
               onSaved={reload}
               onStatus={setFetchStatus}
             />
