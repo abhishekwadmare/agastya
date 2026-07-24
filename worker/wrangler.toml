@@ -27,3 +27,5 @@ bucket_name = "agastya-data"
 #   wrangler secret put SCRAPER_API_KEY
 # (also needs to be added as a GitHub Actions secret with the same name,
 # for scrape.yml to authenticate its jobs sync)
+# RESEND_API_KEY is a secret - set it with:
+#   wrangler secret put RESEND_API_KEY
