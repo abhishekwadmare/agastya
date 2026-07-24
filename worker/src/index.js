@@ -44,6 +44,10 @@
  *   SCRAPER_API_KEY  - a random shared secret; also set as a GitHub
  *                       Actions secret of the same name so scrape.yml
  *                       can authenticate POST /api/scraper/sync-jobs
+ *   RESEND_API_KEY   - Resend API key, used by sendAlertEmail to send
+ *                       per-alert match emails; until set, alert emails
+ *                       soft-fail (logged, not thrown) and everything
+ *                       else keeps working normally
  *
  * Required Worker vars (in wrangler.toml or the dashboard):
  *   ALLOWED_EMAIL     - e.g. abhishek.wadmare@gmail.com - the permanent
@@ -54,6 +58,8 @@
  *   GITHUB_OWNER      - your GitHub username
  *   GITHUB_REPO       - repo name
  *   GITHUB_BRANCH     - usually "main"
+ *   RESEND_FROM_EMAIL - optional; defaults to Resend's sandbox sender
+ *                       ("onboarding@resend.dev") if unset
  *
  * Required Worker bindings:
  *   DATA_BUCKET       - R2 bucket binding for jobs/companies/alerts/
@@ -199,36 +205,98 @@ async function r2PutJson(key, content, etag, env) {
 }
 
 const EMPTY_ALERTS = { alerts: [] };
+const DEFAULT_ALERT_FREQUENCY_HOURS = 1;
+const MIN_ALERT_FREQUENCY_HOURS = 1;
 
+// Upserts the caller's one alert - creates it if none exists yet,
+// otherwise updates the editable fields in place. created_at/
+// last_notified_at/paused are only ever set on first creation and are
+// never touched by an edit, so editing an alert can't reset a throttle
+// window, drop an already-pending match, or silently un-pause it. This
+// is a deliberate departure from this app's usual "no edit, delete +
+// re-add" convention - an upsert here avoids a two-request
+// delete-then-add partial-failure window and preserves pending
+// notification state across an edit.
 async function handleAddAlert(payload, env, actorEmail) {
-  const { content, etag } = await r2GetJson("alerts.json", env, EMPTY_ALERTS);
-  const newAlert = {
-    ...payload.alert,
-    owner: actorEmail,
-    created_at: new Date().toISOString(),
-  };
-  if (content.alerts.some((a) => a.id === newAlert.id)) {
-    throw new Error(`Alert id '${newAlert.id}' already exists`);
+  const [{ content, etag }, { content: companiesContent }] = await Promise.all([
+    r2GetJson("alerts.json", env, EMPTY_ALERTS),
+    r2GetJson("companies.json", env, { companies: [] }),
+  ]);
+
+  const frequencyRaw = payload.alert?.frequency_hours;
+  const frequency =
+    frequencyRaw === undefined || frequencyRaw === ""
+      ? DEFAULT_ALERT_FREQUENCY_HOURS
+      : Number(frequencyRaw);
+  if (!Number.isFinite(frequency) || frequency < MIN_ALERT_FREQUENCY_HOURS) {
+    throw new Error(`frequency_hours must be a number >= ${MIN_ALERT_FREQUENCY_HOURS}`);
   }
-  content.alerts.push(newAlert);
+
+  const companies = Array.isArray(payload.alert?.companies) ? payload.alert.companies : [];
+  if (!companies.length) {
+    throw new Error("Pick at least one company");
+  }
+  const validIds = new Set(companiesContent.companies.map((c) => c.id));
+  const invalid = companies.filter((id) => !validIds.has(id));
+  if (invalid.length) {
+    throw new Error(`Unknown compan${invalid.length === 1 ? "y" : "ies"}: ${invalid.join(", ")}`);
+  }
+
+  const fields = {
+    companies,
+    keywords_any: payload.alert?.keywords_any || [],
+    keywords_exclude: payload.alert?.keywords_exclude || [],
+    location_filter: payload.alert?.location_filter || "",
+    frequency_hours: frequency,
+  };
+
+  const existing = content.alerts.find((a) => a.owner === actorEmail);
+  let savedAlert;
+  if (existing) {
+    Object.assign(existing, fields);
+    savedAlert = existing;
+  } else {
+    savedAlert = {
+      owner: actorEmail,
+      ...fields,
+      paused: false,
+      created_at: new Date().toISOString(),
+      last_notified_at: null,
+    };
+    content.alerts.push(savedAlert);
+  }
+
   await r2PutJson("alerts.json", content, etag, env);
-  return { ok: true, alert: newAlert };
+  return { ok: true, alert: savedAlert };
 }
 
 async function handleDeleteAlert(payload, env, actorEmail) {
+  const targetOwner = payload.owner || actorEmail;
+  if (targetOwner !== actorEmail && !(await isAdmin(actorEmail, env))) {
+    throw new Error("You can only delete your own alert");
+  }
   const { content, etag } = await r2GetJson("alerts.json", env, EMPTY_ALERTS);
-  const target = content.alerts.find((a) => a.id === payload.id);
-  if (!target) {
-    throw new Error(`No alert found with id '${payload.id}'`);
+  const before = content.alerts.length;
+  content.alerts = content.alerts.filter((a) => a.owner !== targetOwner);
+  if (content.alerts.length === before) {
+    throw new Error(`No alert found for '${targetOwner}'`);
   }
-  // Alerts seeded before ownership existed have no `owner` - only an
-  // admin can delete those until they're recreated with one.
-  if (target.owner !== actorEmail && !(await isAdmin(actorEmail, env))) {
-    throw new Error("You can only delete your own alerts");
-  }
-  content.alerts = content.alerts.filter((a) => a.id !== payload.id);
   await r2PutJson("alerts.json", content, etag, env);
   return { ok: true };
+}
+
+// Separate, self-service-only action from editing - takes the desired
+// final state rather than blindly toggling, so a double-fired click is
+// idempotent instead of racily flipping the value twice.
+async function handleSetAlertPaused(payload, env, actorEmail) {
+  const { content, etag } = await r2GetJson("alerts.json", env, EMPTY_ALERTS);
+  const alert = content.alerts.find((a) => a.owner === actorEmail);
+  if (!alert) {
+    throw new Error("No alert found");
+  }
+  alert.paused = Boolean(payload.paused);
+  await r2PutJson("alerts.json", content, etag, env);
+  return { ok: true, alert };
 }
 
 async function handleGetAlerts(env, idToken) {
@@ -368,14 +436,145 @@ async function mergeJobsIntoR2(newJobs, env) {
   return incoming.length;
 }
 
+// 1:1 port of scraper/core.py::matches_alert() (title-only matching -
+// keywords_any/keywords_exclude never check location, that's what
+// location_filter is for). The company check has no Python equivalent -
+// it exists because this runs against the shared jobs.json produced by
+// the per-company scrape path, not the old per-alert path
+// matches_alert() was originally written for. Array.isArray guards
+// against alerts.json still containing pre-#13 records saved under the
+// old per-company schema (no `companies` array at all) - without it,
+// one legacy record would throw and abort checkAlertsAndNotify's whole
+// loop, silently breaking every other, valid alert too.
+function matchesAlert(job, alert) {
+  if (!Array.isArray(alert.companies) || !alert.companies.includes(job.company_id)) return false;
+
+  const titleLower = (job.title || "").toLowerCase();
+  const locationLower = (job.location || "").toLowerCase();
+  const keywordsAny = (alert.keywords_any || []).map((k) => k.toLowerCase());
+  const keywordsExclude = (alert.keywords_exclude || []).map((k) => k.toLowerCase());
+  const locationFilter = (alert.location_filter || "").trim().toLowerCase();
+
+  if (keywordsAny.length && !keywordsAny.some((k) => titleLower.includes(k))) return false;
+  if (keywordsExclude.some((k) => titleLower.includes(k))) return false;
+  if (locationFilter && !locationLower.includes(locationFilter)) return false;
+  return true;
+}
+
+// Resend (https://api.resend.com/emails). Soft-fails (returns
+// { ok: false, message } instead of throwing) like handleTestCompany -
+// a bad/missing key or a Resend outage should never break the jobs sync
+// it's piggybacking on, and shouldn't stop other alerts in the same
+// batch from being checked/notified. onboarding@resend.dev is Resend's
+// zero-setup sandbox sender - only delivers to the account owner's own
+// verified email until a sending domain is verified.
+async function sendAlertEmail(alert, matchedJobs, env) {
+  if (!env.RESEND_API_KEY) {
+    return { ok: false, message: "RESEND_API_KEY is not configured" };
+  }
+  const jobLines = matchedJobs
+    .map((j) => `- ${j.title} at ${j.company} (${j.location || "location n/a"}) - ${j.apply_url}`)
+    .join("\n");
+  const plural = matchedJobs.length === 1 ? "" : "s";
+  const body = {
+    from: env.RESEND_FROM_EMAIL || "Agastya Alerts <onboarding@resend.dev>",
+    to: [alert.owner],
+    subject: `${matchedJobs.length} new job${plural} matching your Agastya alert`,
+    text: `New postings matching your alert:\n\n${jobLines}`,
+  };
+  let resp;
+  try {
+    resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    return { ok: false, message: `Could not reach Resend: ${err.message}` };
+  }
+  if (!resp.ok) {
+    return { ok: false, message: `Resend returned ${resp.status}: ${await resp.text()}` };
+  }
+  return { ok: true };
+}
+
+// Called after every jobs sync. Deliberately does NOT take the synced
+// jobs as input - matches are instead recomputed from
+// job.first_seen > (alert.last_notified_at || alert.created_at) against
+// the full jobs.json every time an alert is due. This is what makes a
+// throttled alert's matches durable: if this instead only looked at
+// "this sync's new jobs," a match that arrived while throttled would
+// never be seen again once merged into jobs.json (it won't reappear in
+// any future sync's new-jobs batch), and would be silently lost forever
+// once the throttle cleared. Falling back to created_at (not an empty
+// string) also means a brand-new alert only sees jobs discovered after
+// it was created, not its entire pre-existing backlog. Being "due" is
+// purely time-based, so this runs on every sync regardless of whether
+// that specific sync added anything.
+async function checkAlertsAndNotify(env) {
+  const [{ content, etag }, { content: jobsContent }] = await Promise.all([
+    r2GetJson("alerts.json", env, EMPTY_ALERTS),
+    r2GetJson("jobs.json", env, EMPTY_JOBS),
+  ]);
+  if (!content.alerts.length || !jobsContent.jobs.length) return 0;
+
+  const now = Date.now();
+  let notifiedCount = 0;
+  let changed = false;
+
+  for (const alert of content.alerts) {
+    if (alert.paused) continue;
+
+    const frequencyMs = (alert.frequency_hours || DEFAULT_ALERT_FREQUENCY_HOURS) * 3600000;
+    const lastNotifiedMs = alert.last_notified_at ? new Date(alert.last_notified_at).getTime() : 0;
+    if (now - lastNotifiedMs < frequencyMs) continue; // not due yet
+
+    const sinceIso = alert.last_notified_at || alert.created_at;
+    const matchedJobs = jobsContent.jobs.filter(
+      (job) => (job.first_seen || "") > sinceIso && matchesAlert(job, alert)
+    );
+    // Due, but nothing new since last time - don't send an empty email,
+    // and don't touch last_notified_at either: that means the *next*
+    // sync checks this alert again immediately (still "overdue" by the
+    // same margin) instead of waiting out a fresh throttle window for
+    // no reason. frequency_hours caps notification frequency, it
+    // doesn't gate how often the alert gets checked.
+    if (!matchedJobs.length) continue;
+
+    const result = await sendAlertEmail(alert, matchedJobs, env);
+    if (result.ok) {
+      alert.last_notified_at = new Date().toISOString();
+      changed = true;
+      notifiedCount += 1;
+    } else {
+      // last_notified_at is NOT advanced on failure - these jobs stay
+      // in the "since last notified" set and get retried automatically
+      // on the next due check, instead of being lost on a transient
+      // Resend hiccup.
+      console.error(`Alert email failed for owner ${alert.owner}: ${result.message}`);
+    }
+  }
+
+  if (changed) {
+    try {
+      await r2PutJson("alerts.json", content, etag, env);
+    } catch (err) {
+      console.error(`Failed to persist last_notified_at updates: ${err.message}`);
+    }
+  }
+  return notifiedCount;
+}
+
 async function handleSyncJobs(payload, env) {
   const added = await mergeJobsIntoR2(payload.jobs, env);
-  return { ok: true, added };
+  const notified = await checkAlertsAndNotify(env);
+  return { ok: true, added, notified };
 }
 
 async function handleScraperSyncJobs(payload, env) {
   const added = await mergeJobsIntoR2(payload.jobs, env);
-  return { ok: true, added };
+  const notified = await checkAlertsAndNotify(env);
+  return { ok: true, added, notified };
 }
 
 async function handleGetJobs(env) {
@@ -513,6 +712,7 @@ const GET_ROUTES = {
 const POST_ROUTES = {
   "/api/add-alert": { handler: handleAddAlert, adminOnly: false },
   "/api/delete-alert": { handler: handleDeleteAlert, adminOnly: false },
+  "/api/set-alert-paused": { handler: handleSetAlertPaused, adminOnly: false },
   "/api/mark-applied": { handler: handleMarkApplied, adminOnly: false },
   "/api/add-company": { handler: handleAddCompany, adminOnly: true },
   "/api/delete-company": { handler: handleDeleteCompany, adminOnly: true },
